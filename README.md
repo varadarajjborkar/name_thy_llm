@@ -22,7 +22,7 @@ All CV numbers use 5-fold `GroupKFold` grouped by `prompt_id`. Random folds leak
 | Hand-made style features only (punctuation, length, ...) | 27.5% | — |
 | TF-IDF word 1–2-grams, logistic regression | 27.3% | — |
 | TF-IDF char 2–5-grams, logistic regression | 32.7% | — |
-| TF-IDF word+char+style, linear SVM (C=1, style weight 0.3) | **36.8%** | pending |
+| TF-IDF word+char+style, linear SVM (C=1, style weight 0.3) | **36.8%** | 34.8% |
 
 What I learned:
 
