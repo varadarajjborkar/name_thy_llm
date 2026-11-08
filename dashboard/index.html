@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training Monitor</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,.10); --wash: rgba(11,11,11,.05);
+    --s-loss: #2a78d6; --s-acc: #eb6834; --s-speed: #1baf7a; --s-gpu: #6250d6;
+    --good: #0ca30c; --good-text: #006300; --warn: #fab219; --serious: #ec835a; --crit: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,.10); --wash: rgba(255,255,255,.07);
+      --s-loss: #3987e5; --s-acc: #d95926; --s-speed: #199e70; --s-gpu: #9085e9; --good-text: #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,.10); --wash: rgba(255,255,255,.07);
+    --s-loss: #3987e5; --s-acc: #d95926; --s-speed: #199e70; --s-gpu: #9085e9; --good-text: #0ca30c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 56px; }
+  header { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; justify-content: space-between; }
+  .eyebrow { color: var(--ink2); font-size: 13px; letter-spacing: .02em; }
+  h1 { margin: 2px 0 6px; font-size: 28px; font-weight: 650; letter-spacing: -.01em; }
+  .sub { color: var(--ink2); font-size: 14px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button { font: inherit; font-size: 14px; padding: 8px 16px; border-radius: 8px; cursor: pointer;
+           border: 1px solid var(--axis); background: var(--surface); color: var(--ink); }
+  button:hover:not(:disabled) { background: var(--wash); }
+  button:focus-visible { outline: 2px solid var(--s-loss); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+  button.primary:hover:not(:disabled) { background: var(--ink); opacity: .85; }
+  button.danger:hover:not(:disabled) { border-color: var(--crit); color: var(--crit); }
+  button.icon { padding: 8px 10px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px;
+          font-size: 14px; font-weight: 550; border: 1px solid var(--ring); background: var(--surface); }
+  .pill .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+  .pill[data-s="running"] .dot { background: var(--good); animation: pulse 2s ease-in-out infinite; }
+  .pill[data-s="finished"] .dot { background: var(--good); }
+  .pill[data-s="paused"] .dot, .pill[data-s="pausing"] .dot, .pill[data-s="down"] .dot { background: var(--warn); }
+  .pill[data-s="stalled"] .dot { background: var(--serious); }
+  .pill[data-s="halted"] .dot, .pill[data-s="stopped"] .dot { background: var(--crit); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .pill .dot { animation: none !important; } }
+
+  .card { min-width: 0; background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 20px; }
+  .grid { display: grid; gap: 16px; margin-top: 16px; }
+  .kpis { grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); }
+  .charts { grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); }
+  @media (max-width: 520px) { .charts { grid-template-columns: 1fr; } .wrap { padding: 20px 16px 48px; } }
+  .lbl { color: var(--ink2); font-size: 13px; }
+  .big { font-size: 30px; font-weight: 650; letter-spacing: -.015em; margin: 4px 0 2px; }
+  .note { color: var(--muted); font-size: 12.5px; }
+  .note b { color: var(--ink2); font-weight: 600; }
+
+  .progress-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .progress-top .big { margin: 0; }
+  .bar { height: 12px; border-radius: 6px; background: var(--wash); margin: 14px 0 12px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--s-loss); border-radius: 6px; transition: width .6s; }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 28px; color: var(--ink2); font-size: 14px; }
+  .facts b { color: var(--ink); font-weight: 600; }
+
+  .chart-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  h2 { margin: 0; font-size: 16px; font-weight: 620; }
+  .cap { margin: 2px 0 10px; color: var(--ink2); font-size: 13px; }
+  .chart { position: relative; width: 100%; min-width: 0; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart text { fill: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .chart .reftxt { fill: var(--ink2); }
+  .tip { position: absolute; pointer-events: none; background: var(--surface); color: var(--ink);
+         border: 1px solid var(--ring); box-shadow: 0 4px 16px rgba(0,0,0,.14); border-radius: 8px;
+         padding: 7px 10px; font-size: 12.5px; white-space: nowrap; display: none; z-index: 5; }
+  .tip .v { font-size: 15px; font-weight: 650; display: flex; align-items: center; gap: 7px; }
+  .tip .k { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
+  .tip .x { color: var(--ink2); }
+  .empty { color: var(--muted); padding: 56px 8px; text-align: center; font-size: 14px; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--ink2); font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 6px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 3px 10px 3px 0; border-bottom: 1px solid var(--grid); }
+  th { color: var(--ink2); font-weight: 550; }
+
+  .two { grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); }
+  ul.ev { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
+  ul.ev li { display: flex; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--grid); }
+  ul.ev time { color: var(--muted); flex: none; min-width: 64px; font-variant-numeric: tabular-nums; }
+  ul.ev span { color: var(--ink); overflow-wrap: anywhere; }
+  pre { margin: 8px 0 0; padding: 12px; border-radius: 8px; background: var(--wash); font: 12px/1.5 ui-monospace, Consolas, monospace;
+        overflow: auto; max-height: 260px; color: var(--ink2); }
+  .banner { margin-top: 16px; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--ring);
+            background: var(--surface); font-size: 14px; display: none; }
+  .banner[data-show="1"] { display: block; }
+  .banner.bad { border-color: var(--crit); }
+  footer { margin-top: 24px; color: var(--muted); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 6px 20px; }
+  .toast { position: fixed; right: 20px; bottom: 20px; max-width: 360px; background: var(--ink); color: var(--surface);
+           padding: 10px 14px; border-radius: 10px; font-size: 14px; display: none; z-index: 20; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Name That LLM</div>
+      <h1>Training monitor</h1>
+      <div class="sub" id="sub">Loading…</div>
+    </div>
+    <div class="actions">
+      <span class="pill" id="pill" data-s="idle"><span class="dot"></span><span id="pillText">Loading…</span></span>
+      <button class="primary" id="bStart">Start</button>
+      <button id="bPause">Pause</button>
+      <button class="danger" id="bStop">Stop</button>
+      <button class="icon" id="bTheme" title="Switch light or dark" aria-label="Switch light or dark theme">◐</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" role="status"></div>
+
+  <section class="card" style="margin-top:16px" aria-label="Overall progress">
+    <div class="progress-top">
+      <div class="big" id="pTitle">Step 0 of 0</div>
+      <div class="lbl" id="pPct">0%</div>
+    </div>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="pbar"><div id="pfill" style="width:0"></div></div>
+    <div class="facts" id="facts"></div>
+  </section>
+
+  <section class="grid kpis" aria-label="Key numbers">
+    <div class="card"><div class="lbl">Training loss</div><div class="big" id="kLoss">…</div><div class="note" id="kLossN"></div></div>
+    <div class="card"><div class="lbl">Validation accuracy</div><div class="big" id="kAcc">…</div><div class="note" id="kAccN"></div></div>
+    <div class="card"><div class="lbl">Speed</div><div class="big" id="kSpeed">…</div><div class="note" id="kSpeedN"></div></div>
+    <div class="card"><div class="lbl">GPU</div><div class="big" id="kGpu">…</div><div class="note" id="kGpuN"></div></div>
+  </section>
+
+  <section class="grid charts" aria-label="Charts">
+    <div class="card">
+      <div class="chart-head"><h2>Training loss</h2></div>
+      <p class="cap">How wrong the model is on its training batches. It should fall. Small wiggles are normal.</p>
+      <div class="chart" id="cLoss"></div><div id="tLoss"></div>
+    </div>
+    <div class="card">
+      <div class="chart-head"><h2>Validation accuracy</h2></div>
+      <p class="cap">Balanced accuracy on 900 competition passages the model never trains on. This is the number that matters.</p>
+      <div class="chart" id="cAcc"></div><div id="tAcc"></div>
+    </div>
+    <div class="card">
+      <div class="chart-head"><h2>Training speed</h2></div>
+      <p class="cap">Passages processed per second. A drop means the GPU is throttling or something else is using it.</p>
+      <div class="chart" id="cSpeed"></div><div id="tSpeed"></div>
+    </div>
+    <div class="card">
+      <div class="chart-head"><h2>GPU temperature</h2></div>
+      <p class="cap">Last 30 minutes while this page was open. Sustained 85 °C or more can slow the GPU down.</p>
+      <div class="chart" id="cGpu"></div><div id="tGpu"></div>
+    </div>
+  </section>
+
+  <section class="grid two" aria-label="Activity">
+    <div class="card"><h2>Training events</h2><ul class="ev" id="evTrain"></ul></div>
+    <div class="card"><h2>Restarts, pauses and watchdog</h2><ul class="ev" id="evSys"></ul></div>
+  </section>
+
+  <section class="card" style="margin-top:16px">
+    <details><summary>Raw training log (last 30 lines)</summary><pre id="log"></pre></details>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const NS = "http://www.w3.org/2000/svg";
+const CHANCE = 1 / 18, BASELINE = 0.368, RANDOM_LOSS = Math.log(18);
+let S = null;
+const lastSig = {};
+
+/* ---------- formatting ---------- */
+const nf = (n, d = 0) => (n == null || isNaN(n)) ? "–" : n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+const pct = (v, d = 1) => v == null ? "–" : (v * 100).toFixed(d) + "%";
+function dur(sec) {
+  if (sec == null) return "calculating…";
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+  return h ? `${h} h ${m} min` : `${m} min`;
+}
+
+/* ---------- chart ---------- */
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function ticks(lo, hi, n, whole) {
+  const span = hi - lo || 1, raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  let step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) || mag * 10;
+  if (whole) step = Math.max(1, Math.round(step));
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-6; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+/* cfg: color, pts[{x,y}], xFmt, yFmt, tipX(x), yMin, yMax, refs[{y,label}], dots, ariaLabel, empty */
+function chart(host, cfg) {
+  host.textContent = "";
+  host.style.minHeight = "";
+  const pts = cfg.pts;
+  if (!pts.length) { const d = document.createElement("div"); d.className = "empty"; d.textContent = cfg.empty; host.appendChild(d); return; }
+  const W = Math.max(host.clientWidth, 300), H = 240, m = { l: 52, r: cfg.refs ? 110 : 18, t: 12, b: 30 };
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs); if (x0 === x1) x1 = x0 + 1;
+  let y0 = cfg.yMin != null ? cfg.yMin : Math.min(...ys), y1 = cfg.yMax != null ? cfg.yMax : Math.max(...ys);
+  if (cfg.refs) cfg.refs.forEach((r) => { if (r.y >= y0 * 0.2 && r.y <= y1 * 1.6) { y1 = Math.max(y1, r.y * 1.05); } });
+  if (y0 === y1) y1 = y0 + 1;
+  const X = (v) => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r), Y = (v) => H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
+
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.ariaLabel }, host);
+  const yt = ticks(y0, y1, 4);
+  yt.forEach((v) => {
+    el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: css("--grid"), "stroke-width": 1 }, svg);
+    const t = el("text", { x: m.l - 8, y: Y(v) + 4, "text-anchor": "end" }, svg); t.textContent = cfg.yFmt(v);
+  });
+  el("line", { x1: m.l, x2: W - m.r, y1: Y(y0), y2: Y(y0), stroke: css("--axis"), "stroke-width": 1 }, svg);
+  ticks(x0, x1, Math.max(2, Math.floor((W - m.l - m.r) / 90)), cfg.xWhole).forEach((v) => {
+    const t = el("text", { x: X(v), y: H - 8, "text-anchor": "middle" }, svg); t.textContent = cfg.xFmt(v);
+  });
+  (cfg.refs || []).forEach((r) => {
+    if (r.y < y0 || r.y > y1) return;
+    el("line", { x1: m.l, x2: W - m.r, y1: Y(r.y), y2: Y(r.y), stroke: css("--muted"), "stroke-width": 1, "stroke-dasharray": "5 4" }, svg);
+    const t = el("text", { x: W - m.r + 6, y: Y(r.y) + 4, class: "reftxt" }, svg); t.textContent = r.label;
+  });
+  const d = pts.map((p, i) => (i ? "L" : "M") + X(p.x).toFixed(1) + " " + Y(p.y).toFixed(1)).join("");
+  if (pts.length > 1) el("path", { d, fill: "none", stroke: cfg.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+  const marks = cfg.dots ? pts : [pts[pts.length - 1]];
+  marks.forEach((p) => el("circle", { cx: X(p.x), cy: Y(p.y), r: 4.5, fill: cfg.color, stroke: css("--surface"), "stroke-width": 2 }, svg));
+
+  /* hover layer: crosshair snaps to the nearest x */
+  const cross = el("line", { y1: m.t, y2: H - m.b, stroke: css("--muted"), "stroke-width": 1, visibility: "hidden" }, svg);
+  const dot = el("circle", { r: 5, fill: cfg.color, stroke: css("--surface"), "stroke-width": 2, visibility: "hidden" }, svg);
+  const tip = document.createElement("div"); tip.className = "tip"; host.appendChild(tip);
+  const hit = el("rect", { x: m.l, y: 0, width: W - m.l - m.r, height: H, fill: "transparent", tabindex: 0 }, svg);
+  const show = (clientX) => {
+    const r = svg.getBoundingClientRect(), px = (clientX - r.left) * (W / r.width), xv = x0 + (px - m.l) / (W - m.l - m.r) * (x1 - x0);
+    let best = pts[0]; for (const p of pts) if (Math.abs(p.x - xv) < Math.abs(best.x - xv)) best = p;
+    const cx = X(best.x), cy = Y(best.y);
+    cross.setAttribute("x1", cx); cross.setAttribute("x2", cx); cross.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", cx); dot.setAttribute("cy", cy); dot.setAttribute("visibility", "visible");
+    tip.textContent = "";
+    const v = document.createElement("div"); v.className = "v";
+    const k = document.createElement("span"); k.className = "k"; k.style.background = cfg.color;
+    v.append(k, document.createTextNode(cfg.yFmt(best.y, true)));
+    const xl = document.createElement("div"); xl.className = "x"; xl.textContent = cfg.tipX(best.x);
+    tip.append(v, xl); tip.style.display = "block";
+    const sx = cx * (r.width / W), left = sx > r.width / 2 ? sx - tip.offsetWidth - 12 : sx + 12;
+    tip.style.left = left + "px"; tip.style.top = Math.max(0, cy * (r.height / H) - 20) + "px";
+  };
+  const hide = () => { cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); tip.style.display = "none"; };
+  hit.addEventListener("pointermove", (e) => show(e.clientX));
+  hit.addEventListener("pointerleave", hide);
+  hit.addEventListener("focus", () => { const r = svg.getBoundingClientRect(); show(r.left + X(pts[pts.length - 1].x) * r.width / W); });
+  hit.addEventListener("blur", hide);
+}
+/* a text table so every chart value is reachable without hovering */
+function table(host, title, cols, rows) {
+  host.textContent = "";
+  if (!rows.length) return;
+  const det = document.createElement("details"), sm = document.createElement("summary");
+  sm.textContent = title; det.appendChild(sm);
+  const t = document.createElement("table"), hr = t.insertRow();
+  cols.forEach((c) => { const th = document.createElement("th"); th.textContent = c; hr.appendChild(th); });
+  rows.slice(-25).reverse().forEach((r) => { const tr = t.insertRow(); r.forEach((c) => { tr.insertCell().textContent = c; }); });
+  det.appendChild(t); host.appendChild(det);
+}
+function draw(key, host, tableHost, sigVal, build) {
+  const sig = key + sigVal + host.clientWidth + document.documentElement.dataset.theme;
+  if (lastSig[key] === sig) return;
+  lastSig[key] = sig; build();
+}
+
+/* ---------- render ---------- */
+function render(s) {
+  S = s;
+  $("sub").textContent = `Qwen3-4B with QLoRA · run "${s.run}" · 100,000 passages from the open pool`;
+  $("pill").dataset.s = s.status; $("pillText").textContent = s.label;
+  const live = ["running", "stalled", "pausing"].includes(s.status), fin = s.status === "finished";
+  $("bStart").textContent = s.has_checkpoint ? "Resume" : "Start";
+  $("bStart").disabled = live || fin;
+  $("bPause").disabled = s.status !== "running" && s.status !== "stalled";
+  $("bStop").disabled = !live && s.status !== "down";
+
+  const ban = $("banner"); ban.className = "banner"; ban.dataset.show = "0";
+  const msg = {
+    halted: `Training stopped on an error: ${s.halted_reason}. Check the raw log below, fix the cause, then press Resume.`,
+    stalled: "The log has not changed for over 30 minutes. The watchdog will restart the trainer from its last checkpoint.",
+    down: "The trainer is not running. If the watchdog is installed it restarts it within 5 minutes. You can also press Resume.",
+    stopped: "Stopped by you. The last saved checkpoint is kept. Press Resume to continue from it.",
+    paused: "Paused. Everything is saved. Press Resume to continue exactly where it left off.",
+  }[s.status];
+  if (msg) { ban.textContent = msg; ban.dataset.show = "1"; if (s.status === "halted") ban.classList.add("bad"); }
+
+  const frac = s.total ? s.step / s.total : 0;
+  $("pTitle").textContent = `Step ${nf(s.step)} of ${nf(s.total)}`;
+  $("pPct").textContent = `${(frac * 100).toFixed(1)}% · ${nf(s.samples_done)} passages seen`;
+  $("pfill").style.width = (frac * 100).toFixed(2) + "%";
+  $("pbar").setAttribute("aria-valuenow", (frac * 100).toFixed(0));
+  const facts = $("facts"); facts.textContent = "";
+  const addFact = (a, b) => { const d = document.createElement("div"); d.append(document.createTextNode(a + " ")); const x = document.createElement("b"); x.textContent = b; d.appendChild(x); facts.appendChild(d); };
+  addFact("Training time", dur(s.active_seconds));
+  addFact("Time left", fin ? "done" : dur(s.eta_seconds));
+  addFact("Expected finish", fin ? "done" : (s.finish || "calculating…"));
+  addFact("Last checkpoint", `step ${nf(s.last_checkpoint)}`);
+
+  const L = s.loss, first = L[0], last = L[L.length - 1];
+  $("kLoss").textContent = last ? last.loss.toFixed(3) : "–";
+  $("kLossN").textContent = (last ? `Started at ${first.loss.toFixed(2)}. Random guessing is ${RANDOM_LOSS.toFixed(2)}. Lower is better.` : "Waiting for the first 20 steps.");
+  const E = s.evals, le = E[E.length - 1], be = E.reduce((a, b) => (!a || b.acc > a.acc ? b : a), null);
+  $("kAcc").textContent = le ? pct(le.acc) : "–";
+  $("kAccN").textContent = le ? `Best ${pct(be.acc)} at step ${nf(be.step)}. To beat: TF-IDF + SVM ${pct(BASELINE)}. Chance ${pct(CHANCE)}.` : `First check at step 250. Chance is ${pct(CHANCE)}, TF-IDF + SVM scores ${pct(BASELINE)}.`;
+  $("kSpeed").textContent = s.speed ? s.speed.toFixed(2) + " /s" : "–";
+  $("kSpeedN").textContent = s.speed ? `About ${(100 * s.batch / s.speed / 60).toFixed(1)} min per 100 steps. Higher is better.` : "Needs two log lines to measure.";
+  const g = s.gpu || {};
+  $("kGpu").textContent = g.temp != null ? `${g.temp.toFixed(0)} °C` : "–";
+  $("kGpuN").textContent = g.util != null ? `${g.util.toFixed(0)}% busy · ${(g.mem / 1024).toFixed(1)} of ${(g.mem_total / 1024).toFixed(0)} GB memory · ${g.power != null ? g.power.toFixed(0) + " W · " : ""}${g.clock_max ? Math.round(g.clock / g.clock_max * 100) + "% of max clock" : ""}` : (g.error || "Reading GPU…");
+
+  draw("loss", $("cLoss"), $("tLoss"), L.length + (last ? last.loss : 0), () => {
+    chart($("cLoss"), { color: css("--s-loss"), pts: L.map((p) => ({ x: p.step, y: p.loss })), xFmt: (v) => nf(v), yFmt: (v, t) => t ? v.toFixed(3) : v.toFixed(v < 10 ? 1 : 0),
+      tipX: (x) => "Step " + nf(x), xWhole: true, refs: [{ y: RANDOM_LOSS, label: "Random guess" }], yMin: 0, ariaLabel: "Training loss against step", empty: "Appears after the first 20 steps (about 5 minutes)." });
+    table($("tLoss"), "Show data", ["Step", "Loss"], L.map((p) => [nf(p.step), p.loss.toFixed(3)]));
+  });
+  draw("acc", $("cAcc"), $("tAcc"), E.length + (le ? le.acc : 0), () => {
+    chart($("cAcc"), { color: css("--s-acc"), pts: E.map((p) => ({ x: p.step, y: p.acc })), xFmt: (v) => nf(v), yFmt: (v, t) => pct(v, t ? 1 : 0),
+      tipX: (x) => "Step " + nf(x), xWhole: true, refs: [{ y: BASELINE, label: "TF-IDF + SVM" }, { y: CHANCE, label: "Chance" }], yMin: 0,
+      yMax: Math.max(0.45, ...E.map((p) => p.acc * 1.15)), dots: true, ariaLabel: "Validation accuracy against step", empty: "First reading at step 250, roughly an hour in." });
+    table($("tAcc"), "Show data", ["Step", "Balanced accuracy"], E.map((p) => [nf(p.step), pct(p.acc, 2)]));
+  });
+  const SP = s.speed_pts;
+  draw("speed", $("cSpeed"), $("tSpeed"), SP.length + (SP.length ? SP[SP.length - 1].v : 0), () => {
+    chart($("cSpeed"), { color: css("--s-speed"), pts: SP.map((p) => ({ x: p.step, y: p.v })), xFmt: (v) => nf(v), yFmt: (v, t) => t ? v.toFixed(2) + " passages/s" : v.toFixed(1),
+      tipX: (x) => "Step " + nf(x), xWhole: true, refs: [{ y: 2.3, label: "Expected" }], yMin: 0, ariaLabel: "Training speed against step", empty: "Needs two log lines to measure." });
+    table($("tSpeed"), "Show data", ["Step", "Passages per second"], SP.map((p) => [nf(p.step), p.v.toFixed(2)]));
+  });
+  const GH = (s.gpu_hist || []).filter((p) => p.temp != null);
+  draw("gpu", $("cGpu"), $("tGpu"), GH.length + (GH.length ? GH[GH.length - 1].temp : 0), () => {
+    const t0 = GH.length ? GH[GH.length - 1].t : 0;
+    chart($("cGpu"), { color: css("--s-gpu"), pts: GH.map((p) => ({ x: (p.t - t0) / 60, y: p.temp })), xFmt: (v) => v === 0 ? "now" : Math.round(v) + " min", yFmt: (v, t) => t ? v.toFixed(0) + " °C" : v.toFixed(0),
+      tipX: (x) => x === 0 ? "Now" : Math.abs(x).toFixed(1) + " min ago", yMin: 30, yMax: 95, refs: [{ y: 85, label: "Throttle risk" }], ariaLabel: "GPU temperature over the last 30 minutes", empty: "Collecting GPU readings…" });
+    table($("tGpu"), "Show data", ["Time", "Temp °C", "Busy %"], GH.map((p) => [new Date(p.t * 1000).toLocaleTimeString(), p.temp, p.util]));
+  });
+
+  const list = (host, items, fmt) => { host.textContent = ""; if (!items.length) { const li = document.createElement("li"); li.textContent = "Nothing yet."; host.appendChild(li); return; }
+    items.slice().reverse().forEach((e) => { const li = document.createElement("li"), t = document.createElement("time"), sp = document.createElement("span"); t.textContent = fmt(e.time); sp.textContent = e.text; li.append(t, sp); host.appendChild(li); }); };
+  list($("evTrain"), s.train_events, (t) => t);
+  list($("evSys"), s.system_events, (t) => t.slice(5, 16));
+  $("log").textContent = s.log_tail.join("\n");
+  $("foot").textContent = "";
+  [`Updated ${new Date(s.now * 1000).toLocaleTimeString()}`, "Refreshes every 5 seconds", `Watchdog: ${s.watchdog}`, `Disk free ${s.disk_free_gb} GB`, `Run folder ${s.run_dir_gb} GB`].forEach((t) => { const sp = document.createElement("span"); sp.textContent = t; $("foot").appendChild(sp); });
+}
+
+/* ---------- data + actions ---------- */
+async function refresh() {
+  try { const r = await fetch("/api/state", { cache: "no-store" }); render(await r.json()); }
+  catch (e) { $("pillText").textContent = "Dashboard lost contact with its server"; $("pill").dataset.s = "stalled"; }
+}
+function toast(t) { const e = $("toast"); e.textContent = t; e.style.display = "block"; clearTimeout(toast.h); toast.h = setTimeout(() => (e.style.display = "none"), 6000); }
+async function act(action, confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  for (const b of ["bStart", "bPause", "bStop"]) $(b).disabled = true;
+  try {
+    const r = await fetch("/api/action", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "dashboard" }, body: JSON.stringify({ action }) });
+    const j = await r.json(); toast(j.message || (j.ok ? "Done." : "That did not work."));
+  } catch (e) { toast("Could not reach the dashboard server."); }
+  setTimeout(refresh, 1200);
+}
+$("bStart").onclick = () => act("start");
+$("bPause").onclick = () => act("pause");
+$("bStop").onclick = () => act("stop", "Stop training now?\n\nThis ends the process immediately. Work since the last saved checkpoint is lost (up to about 25 minutes). You can resume from that checkpoint later.\n\nTo stop without losing anything, use Pause instead.");
+$("bTheme").onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("theme", next); } catch (e) {}
+  for (const k in lastSig) delete lastSig[k]; if (S) render(S);
+};
+try { const t = new URLSearchParams(location.search).get("theme") || localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+let lastW = 0;
+new ResizeObserver(() => { const w = document.body.clientWidth; if (w === lastW) return; lastW = w; for (const k in lastSig) delete lastSig[k]; if (S) render(S); }).observe(document.body);
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>
