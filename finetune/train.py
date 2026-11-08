@@ -71,6 +71,8 @@ ap.add_argument("--cv-fold", type=int, default=-1,
                      "-2: train on all of --val (no validation)")
 ap.add_argument("--cv-folds", type=int, default=5)
 ap.add_argument("--label-smoothing", type=float, default=0.0)
+ap.add_argument("--compute-dtype", choices=["bf16", "fp16"], default="bf16",
+                help="fp16 for GPUs without native bf16 (Kaggle T4/P100); uses loss scaling")
 ap.add_argument("--lockbox-fold", type=int, default=-1,
                 help="stage 1: drop this GroupKFold fold of --val from validation, so no decision ever looks at it")
 a = ap.parse_args()
@@ -177,8 +179,10 @@ def collate(ids_list, idx):
 
 
 # ------------------------------------------------------------------ model
+CDT = torch.bfloat16 if a.compute_dtype == "bf16" else torch.float16
 bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
-                         bnb_4bit_compute_dtype=torch.bfloat16)
+                         bnb_4bit_compute_dtype=CDT)
+scaler = torch.amp.GradScaler("cuda", enabled=a.compute_dtype == "fp16")  # pass-through when bf16
 torch.manual_seed(a.seed)
 LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
@@ -203,7 +207,7 @@ class MultiScale(torch.nn.Module):
 
 if a.arch == "seqcls":
     model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL, num_labels=len(classes), quantization_config=bnb, dtype=torch.bfloat16, device_map={"": 0})
+        MODEL, num_labels=len(classes), quantization_config=bnb, dtype=CDT, device_map={"": 0})
     model.config.pad_token_id = PAD
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.05,
@@ -216,7 +220,7 @@ else:
     cfg.num_hidden_layers = n_layers  # the unused top layers are never even loaded
     if getattr(cfg, "layer_types", None):
         cfg.layer_types = cfg.layer_types[:n_layers]
-    base = AutoModel.from_pretrained(MODEL, config=cfg, quantization_config=bnb, dtype=torch.bfloat16,
+    base = AutoModel.from_pretrained(MODEL, config=cfg, quantization_config=bnb, dtype=CDT,
                                      device_map={"": 0})
     base.norm = torch.nn.Identity()  # the deepest pooled layer is read raw, like the shallower ones
     base = prepare_model_for_kbit_training(base, use_gradient_checkpointing=True)
@@ -282,7 +286,7 @@ def load_ckpt():
                 st = torch.load(d / "state.pt", map_location="cpu", weights_only=False)
                 for k in ("seed", "bs", "accum", "epochs", "n_train", "lora_r", "maxlen", "train", "lr", "head_lr",
                           "warmup", "arch", "layers", "depths", "cv_fold", "cv_folds", "label_smoothing", "init",
-                          "lockbox_fold"):
+                          "lockbox_fold", "compute_dtype"):
                     old = st["args"].get(k, ap.get_default(k))  # checkpoints from before an option existed
                     if old != getattr(a, k):
                         P(f"FATAL: --{k.replace('_', '-')} changed since the checkpoint ({old} -> {getattr(a, k)}). "
@@ -384,10 +388,12 @@ while step < total_steps:
                 P("too many non-finite losses, aborting")
                 sys.exit(3)
             continue
-        (loss / a.accum).backward()
+        scaler.scale(loss / a.accum).backward()
         tot += loss.item() / a.accum
+    scaler.unscale_(opt)  # no-ops when bf16; with fp16 a step with inf/NaN gradients is skipped, not applied
     torch.nn.utils.clip_grad_norm_([p for _, p in named], 1.0)
-    opt.step()
+    scaler.step(opt)
+    scaler.update()
     opt.zero_grad(set_to_none=True)
     step += 1
     ema = tot if ema is None else 0.98 * ema + 0.02 * tot
