@@ -336,6 +336,17 @@ def bal_acc(logits, idx):
     return balanced_accuracy_score(val_y[idx], logits[idx].argmax(1))
 
 
+def sinkhorn(logits, iters=100):
+    """Class balancing without labels: rescale probabilities so every class gets an equal share of the predictions
+    (rows renormalised each round). Assumes the evaluated set is roughly balanced, as the host's train.csv is."""
+    p = np.exp(logits - logits.max(1, keepdims=True))
+    p /= p.sum(1, keepdims=True)
+    for _ in range(iters):
+        p /= p.sum(0, keepdims=True)
+        p /= p.sum(1, keepdims=True)
+    return np.log(p + 1e-12)
+
+
 def recall_report(logits, idx):
     """Per-model recall (share of each model's passages identified) and the full confusion matrix.
     cm[i][j] = passages written by model i that were predicted as model j. Mean recall = balanced accuracy."""
@@ -389,11 +400,19 @@ while step < total_steps:
     if step % a.eval_every == 0 or step == total_steps:
         lg = evaluate(sub_idx)
         acc = bal_acc(lg, sub_idx)
-        P(f"EVAL step {step} balanced_acc {acc:.4f} (subset {len(sub_idx)})")
+        lg_b = lg.copy()
+        lg_b[sub_idx] = sinkhorn(lg[sub_idx])
+        acc_b = bal_acc(lg_b, sub_idx)
+        P(f"EVAL step {step} balanced_acc {acc:.4f} (subset {len(sub_idx)}) | with class balancing {acc_b:.4f}")
         rec, cm = recall_report(lg, sub_idx)
+        rec_b, cm_b = recall_report(lg_b, sub_idx)
+        (RUN / "eval_logits").mkdir(exist_ok=True)  # raw outputs kept so any post-processing can be checked later
+        np.save(RUN / "eval_logits" / f"step{step}.npy", lg[sub_idx])
+        np.save(RUN / "eval_logits" / "labels.npy", val_y[sub_idx])
         with open(RUN / "metrics.jsonl", "a") as f:
             f.write(json.dumps({"step": step, "loss": ema, "val_bal_acc": acc, "t": time.time(),
-                                "recall": rec, "confusion": cm}) + "\n")
+                                "recall": rec, "confusion": cm, "val_bal_acc_balanced": acc_b,
+                                "recall_balanced": rec_b, "confusion_balanced": cm_b}) + "\n")
         if acc > best:
             best = acc
             torch.save({n: p.detach().cpu() for n, p in named}, RUN / "best_tmp.pt")

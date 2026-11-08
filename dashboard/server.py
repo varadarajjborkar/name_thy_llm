@@ -141,7 +141,7 @@ def parse_metrics():
     for line in read_lines(RUN / "metrics.jsonl"):
         try:
             r = json.loads(line)
-            out.append({"step": r["step"], "acc": r["val_bal_acc"]})
+            out.append({"step": r["step"], "acc": r["val_bal_acc"], "acc_bal": r.get("val_bal_acc_balanced")})
             if r.get("recall") and r.get("confusion"):
                 last_rec = r
         except Exception:
@@ -149,11 +149,17 @@ def parse_metrics():
     return out, last_rec
 
 
-def recall_info(last_rec):
+def recall_info(last_rec, balanced=False):
     """Per-model recall for the newest eval, plus who each model is most often mistaken for."""
     src, step = "subset of 900 passages", None
     rec = cm = None
+    if balanced:
+        if not last_rec or not last_rec.get("recall_balanced"):
+            return None
+        last_rec = dict(last_rec, recall=last_rec["recall_balanced"], confusion=last_rec["confusion_balanced"])
     try:
+        if balanced:
+            raise FileNotFoundError  # the final file holds raw results only
         fin = json.loads((RUN / "final_eval.json").read_text())
         rec, cm, src, step = fin["recall"], fin["confusion"], "full validation set (2,699 passages)", "final"
     except Exception:
@@ -181,6 +187,16 @@ def system_events():
                 ev.append({"time": line[:19], "text": line[20:], "src": name.split(".")[0]})
     ev.sort(key=lambda e: e["time"])
     return ev[-14:]
+
+
+def run_setup():
+    """What this run trains on, read from its own log (so the page never shows another run's setup)."""
+    txt = "
+".join(read_lines(RUN / "train.log")[:40])
+    n = re.search(r"data: train ([\d,]+)", txt)
+    ms = re.search(r"multi-scale: (\d+) layers", txt)
+    arch = f"first {ms.group(1)} layers, multi-depth pooling" if ms else "all layers, last-token head"
+    return f"Qwen3-4B with QLoRA ({arch}) · {n.group(1) if n else '?'} training passages"
 
 
 def build_state():
@@ -226,12 +242,12 @@ def build_state():
 
     du = shutil.disk_usage(ROOT)
     return {
-        "run": args.run, "status": status, "label": label, "now": time.time(),
+        "run": args.run, "setup": run_setup(), "status": status, "label": label, "now": time.time(),
         "step": step, "total": total, "batch": bs, "samples_done": step * bs,
         "active_seconds": active, "speed": speed, "eta_seconds": eta_s, "finish": finish,
         "last_checkpoint": prog.get("step", 0), "best_acc": prog.get("best", 0),
         "has_checkpoint": any((RUN / d / "OK").exists() for d in ("ckpt_latest", "ckpt_prev", "ckpt_tmp")),
-        "loss": pts, "evals": evals, "speed_pts": speeds, "recall": recall_info(last_rec),
+        "loss": pts, "evals": evals, "speed_pts": speeds, "recall": recall_info(last_rec), "recall_bal": recall_info(last_rec, balanced=True),
         "gpu": dict(gpu_now), "gpu_hist": list(gpu_hist)[-360:],
         "disk_free_gb": round(du.free / 2**30, 1), "run_dir_gb": cached("size", 60, ckpt_size_gb),
         "watchdog": cached("wd", 60, watchdog_state),

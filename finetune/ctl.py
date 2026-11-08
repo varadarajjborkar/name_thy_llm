@@ -169,6 +169,12 @@ def main():
         args_f = RUN / "args.json"
         supervise(json.loads(args_f.read_text()) if args_f.exists() else [])
     elif cmd == "start":
+        if alive(sup_pid()) and (RUN / "PAUSE").exists():
+            print("the run is still saving its pause checkpoint, waiting for it to exit...")
+            for _ in range(60):
+                time.sleep(3)
+                if not alive(sup_pid()):
+                    break
         if alive(sup_pid()):
             print("already running. Use: ctl.py status")
             return

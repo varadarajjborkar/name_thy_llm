@@ -92,6 +92,9 @@
   th, td { text-align: left; padding: 3px 10px 3px 0; border-bottom: 1px solid var(--grid); }
   th { color: var(--ink2); font-weight: 550; }
 
+  .seg { display: inline-flex; border: 1px solid var(--axis); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 5px 12px; font-size: 13px; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
   .two { grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); }
   ul.ev { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
   ul.ev li { display: flex; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--grid); }
@@ -167,7 +170,9 @@
   </section>
 
   <section class="card" style="margin-top:16px" aria-label="Recall by model">
-    <div class="chart-head"><h2>Recall by model</h2><span class="note" id="recSrc"></span></div>
+    <div class="chart-head"><h2>Recall by model</h2>
+      <span class="seg" role="group" aria-label="Recall view"><button id="vBal" aria-pressed="true">With class balancing</button><button id="vRaw" aria-pressed="false">Raw</button></span></div>
+    <div class="note" id="recSrc"></div>
     <p class="cap">Of the passages each model really wrote, the share we identified correctly. The average of these 18 bars is the balanced accuracy above. A short bar is a model that is hard to recognise. Hover a bar to see what it gets mistaken for.</p>
     <div class="chart" id="cRecall"></div><div id="tRecall"></div>
   </section>
@@ -336,7 +341,7 @@ function draw(key, host, tableHost, sigVal, build) {
 /* ---------- render ---------- */
 function render(s) {
   S = s;
-  $("sub").textContent = `Qwen3-4B with QLoRA · run "${s.run}" · 100,000 passages from the open pool`;
+  $("sub").textContent = `Run "${s.run}" · ${s.setup}`;
   $("pill").dataset.s = s.status; $("pillText").textContent = s.label;
   const live = ["running", "stalled", "pausing"].includes(s.status), fin = s.status === "finished";
   $("bStart").textContent = s.has_checkpoint ? "Resume" : "Start";
@@ -371,7 +376,8 @@ function render(s) {
   $("kLossN").textContent = (last ? `Started at ${first.loss.toFixed(2)}. Random guessing is ${RANDOM_LOSS.toFixed(2)}. Lower is better.` : "Waiting for the first 20 steps.");
   const E = s.evals, le = E[E.length - 1], be = E.reduce((a, b) => (!a || b.acc > a.acc ? b : a), null);
   $("kAcc").textContent = le ? pct(le.acc) : "–";
-  $("kAccN").textContent = le ? `Best ${pct(be.acc)} at step ${nf(be.step)}. To beat: TF-IDF + SVM ${pct(BASELINE)}. Chance ${pct(CHANCE)}.` : `First check at step 250. Chance is ${pct(CHANCE)}, TF-IDF + SVM scores ${pct(BASELINE)}.`;
+  const balTxt = le && le.acc_bal != null ? ` With class balancing: ${pct(le.acc_bal)}.` : "";
+  $("kAccN").textContent = (le ? `Best ${pct(be.acc)} at step ${nf(be.step)}. To beat: TF-IDF + SVM ${pct(BASELINE)}. Chance ${pct(CHANCE)}.` : `First check at step 250. Chance is ${pct(CHANCE)}, TF-IDF + SVM scores ${pct(BASELINE)}.`) + balTxt;
   $("kSpeed").textContent = s.speed ? s.speed.toFixed(2) + " /s" : "–";
   $("kSpeedN").textContent = s.speed ? `About ${(100 * s.batch / s.speed / 60).toFixed(1)} min per 100 steps. Higher is better.` : "Needs two log lines to measure.";
   const g = s.gpu || {};
@@ -403,9 +409,11 @@ function render(s) {
     table($("tGpu"), "Show data", ["Time", "Temp °C", "Busy %"], GH.map((p) => [new Date(p.t * 1000).toLocaleTimeString(), p.temp, p.util]));
   });
 
-  const RC = s.recall;
-  $("recSrc").textContent = RC ? `${RC.step === "final" ? "Final result" : "Step " + nf(RC.step)} · ${RC.source}` : "";
-  draw("recall", $("cRecall"), $("tRecall"), RC ? RC.step + ":" + RC.rows.map((r) => r.recall).join(",") : "none", () => {
+  const wantBal = recView === "bal" && s.recall_bal, RC = wantBal ? s.recall_bal : s.recall;
+  $("vBal").setAttribute("aria-pressed", recView === "bal"); $("vRaw").setAttribute("aria-pressed", recView !== "bal");
+  $("vBal").disabled = !s.recall_bal;
+  $("recSrc").textContent = RC ? `${RC.step === "final" ? "Final result" : "Step " + nf(RC.step)} · ${RC.source}${wantBal ? " · predictions rebalanced so each model gets an equal share (no labels used)" : " · raw model output"}` : "";
+  draw("recall", $("cRecall"), $("tRecall"), recView + (RC ? RC.step + ":" + RC.rows.map((r) => r.recall).join(",") : "none"), () => {
     barChart($("cRecall"), RC ? RC.rows : null, css("--s-acc"), "Recall for each of the 18 models", "Appears after the next accuracy check. Per-model results are recorded from now on.");
     table($("tRecall"), "Show data", ["Model", "Recall", "Passages", "Mistaken most for", "Share"], RC ? RC.rows.map((r) => [r.model, pct(r.recall, 1), r.n, r.confused_with, pct(r.confused_share, 0)]) : []);
   });
@@ -433,6 +441,9 @@ async function act(action, confirmText) {
   } catch (e) { toast("Could not reach the dashboard server."); }
   setTimeout(refresh, 1200);
 }
+let recView = "bal";
+$("vBal").onclick = () => { recView = "bal"; if (S) render(S); };
+$("vRaw").onclick = () => { recView = "raw"; if (S) render(S); };
 $("bStart").onclick = () => act("start");
 $("bPause").onclick = () => act("pause");
 $("bStop").onclick = () => act("stop", "Stop training now?\n\nThis ends the process immediately. Work since the last saved checkpoint is lost (up to about 25 minutes). You can resume from that checkpoint later.\n\nTo stop without losing anything, use Pause instead.");
