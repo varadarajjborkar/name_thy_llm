@@ -57,3 +57,14 @@ Decision: not yet a candidate on raw. Skipping lr 2e-5 (the trend runs the other
 Next: e003 lr 2e-4 / head 2e-3 to find where the lr curve peaks, with per-epoch logits saved (--eval-every 67) so
 an epoch-1 vs epoch-2 ensemble can be tested offline.
 Note: results.tsv gpu_h_total was briefly mis-summed by my helper; fixed (cumulative total after e002 = 0.97 h).
+
+### e003 lr 2e-4 / head 2e-3 (2026-11-09)
+What: e001 with lr 2e-4 (head 2e-3), 2 epochs, plus epoch-1 logits saved (--eval-every 67).
+Result: f0 raw 0.511 / sinkhorn 0.543, f1 0.520 / 0.556. Mean raw 0.516 (vs 0.539 at 1e-4, 0.531 at 5e-5), so the lr
+curve peaks near 1e-4 (5e-5: 0.531, 1e-4: 0.539, 2e-4: 0.516). Offline: epoch-1 snapshot alone 0.419 / 0.448 (mid
+schedule at high lr, weak), epoch1+epoch2 average 0.522 / 0.526 vs epoch 2 alone 0.511 / 0.520 (+1.1 but still
+below e002 alone). Average of the final e003 and e002 outputs (different lr, same init): f0 0.541, f1 0.552, mean 0.546
+(+0.7 over e002 alone, within noise).
+Decision: discard 2e-4. Keep lr 1e-4 / 1e-3 as the working lr for the next tests (best so far, e002; its margin
+over e001 is under the 1.0 rule so I treat lr as a flat 5e-5..1e-4 plateau and choose 1e-4 only because every
+following test needs to pick one). Next: e004 epochs 3 at lr 1e-4 (train loss was still ~1.1 at the end).
