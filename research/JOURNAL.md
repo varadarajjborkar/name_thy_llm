@@ -68,3 +68,15 @@ below e002 alone). Average of the final e003 and e002 outputs (different lr, sam
 Decision: discard 2e-4. Keep lr 1e-4 / 1e-3 as the working lr for the next tests (best so far, e002; its margin
 over e001 is under the 1.0 rule so I treat lr as a flat 5e-5..1e-4 plateau and choose 1e-4 only because every
 following test needs to pick one). Next: e004 epochs 3 at lr 1e-4 (train loss was still ~1.1 at the end).
+
+### e004 epochs 3 at lr 1e-4 (2026-11-09)
+What: e002 config with 3 epochs (201 steps, cosine over all 3), snapshots every 67 steps. Why: queue idea 4, loss was
+still falling at the end of 2 epochs.
+Result: f0 raw 0.528 / sinkhorn 0.541, f1 0.533 / 0.554. Mean raw 0.531 (e002 2 epochs: 0.539), sinkhorn 0.547.
+Snapshots inside the run: step 67 / 134 / 201 = f0 0.494 / 0.511 / 0.528, f1 0.507 / 0.526 / 0.533. Averaging the last
+two snapshots: 0.522 / 0.532 (worse than final alone); e004 final + e002 final: 0.541 / 0.541 (mean 0.541, +0.2 over
+e002 alone, no real gain). 33 min per session instead of 26.
+Decision: discard 3 epochs; 2 epochs stays (more epochs do not help raw, accuracy plateaus at ~0.53-0.54 with this
+init and 2.1k rows). The limiting factor looks like data quantity or distribution, not optimisation.
+Next: wait for the GPU slot (main agent asked for research/GPU_SLOT_FREE before any push). Then e005 = e002 config
+on init `run2final` (the init that ships), then e006 = e005 + hostlike (--extra).
