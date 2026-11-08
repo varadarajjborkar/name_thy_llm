@@ -72,7 +72,11 @@ Local CV maps to LB roughly as CV - 0.02 so far.
 6. Label smoothing 0.1. LoRA dropout. Max length 384 for training.
 7. When `run2final` appears in ntl-qwen-weights (the main agent adds it after run2 finishes, about 04:15),
    re-run the best config with it: it is the init that will actually ship.
-8. Ensembling hint: keep `val_logits.npy` of good runs (the output folder has them) under
+8. Checkpoint ensembles (evidence: run2 step 1000 + 1250 logit average on the 900-row subset: raw 0.480 vs
+   0.463 / 0.430 alone, sinkhorn 0.520 vs 0.502 / 0.496). In stage 2, try averaging log-softmax of the end of
+   epoch 1 and epoch 2, or of two seeds, scored on the same fold. Main agent is saving run2 weights at steps
+   1000, 1300, 1500, 1700 and final (names run2s<step> in ntl-qwen-weights once uploaded).
+9. Ensembling hint: keep `val_logits.npy` of good runs (the output folder has them) under
    `research/runs/<exp>/<job>/` (gitignored is fine via data/; or keep small npy files in research/runs) so the
    main agent can test blends.
 
