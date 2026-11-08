@@ -18,3 +18,17 @@ Newest entries last. Each entry: date/time, experiment id, what and why, result,
 * Kaggle ntl-qwen-train (main agent): k_host1 = stage 1 on pool + hostlike, k_host3 = pool + hostlike x3,
   started about 02:10, about 6.5 h. Compare with run2 to learn whether host-faithful data helps stage 1.
 * Dead ends so far: run1 (36-layer seqcls head) learned slower than multi-scale; bf16 on T4 is 4x slower than fp16.
+
+## Research agent A, gen 1 (log)
+Columns f0..f3 in results.tsv hold **raw** balanced accuracy per fold (primary metric since the group-assignment
+LB failure); mean_grouped is kept for completeness only and is not used for decisions. gpu_h = session
+`total_minutes`/60 (one Kaggle session = one GPU-hour clock, both T4s busy).
+
+### e000 smoke (2026-11-09)
+What: runner as committed, init `run2` weights, 64 train rows, 1 epoch (2 optimizer steps), folds 0 and 1, one per GPU.
+Why: prove the pipeline end to end (dataset mounting, bitsandbytes install, 2 parallel jobs, summary.json, assign).
+Result: both jobs exit 0, 4.0 min each, 4.2 min total session (0.07 gpu_h). Model load + tokenization + 540-row eval
+fits well within that. raw 0.419 / 0.356, sinkhorn 0.428 / 0.426 (n_val 540 each). Not a result: 64 rows from an
+init that already had a stage-1 head; it only shows the code path works.
+Decision: pipeline OK. Next e001: stage-2 baseline with run2s1000 init (lr 5e-5, head 5e-4, 2 epochs), then the
+near-zero-update control (--n-train 8, which yields 0 optimizer steps, i.e. exact stage-1 score) as e001c.

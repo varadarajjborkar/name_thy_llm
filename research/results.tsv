@@ -1,1 +1,2 @@
 exp	date	idea	config	f0	f1	f2	f3	mean_grouped	mean_sinkhorn	mean_raw	decision	gpu_h	gpu_h_total
+e000	2026-11-09	smoke: pipeline proof	init run2, 64 rows, 1 epoch, folds 0,1 (not a result)	0.4185	0.3556			0.5713	0.4269	0.387	n/a smoke	0.07	0.07
