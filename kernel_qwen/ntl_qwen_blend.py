@@ -104,9 +104,9 @@ if qwen_names:
             return self.head(self.drop(torch.cat(feats, -1)))
 
     @torch.no_grad()
-    def qwen_scores(folder):
-        args = json.load(open(f"{folder}/args.json"))
-        assert json.load(open(f"{folder}/classes.json")) == classes, "class order differs"
+    def qwen_scores(prefix):  # files <prefix>__weights.pt, __args.json, __classes.json (Kaggle flattens folders)
+        args = json.load(open(f"{prefix}__args.json"))
+        assert json.load(open(f"{prefix}__classes.json")) == classes, "class order differs"
         cfg = AutoConfig.from_pretrained(MODEL)
         cfg.num_hidden_layers = args["layers"] or cfg.num_hidden_layers
         if getattr(cfg, "layer_types", None):
@@ -121,7 +121,7 @@ if qwen_names:
                                                target_modules=LORA_TARGETS))
         depths = [int(x) for x in args["depths"].split(",")]
         model = MultiScale(base, depths, cfg.hidden_size, len(classes)).cuda().eval()
-        sd = torch.load(f"{folder}/weights.pt", map_location="cpu", weights_only=False)
+        sd = torch.load(f"{prefix}__weights.pt", map_location="cpu", weights_only=False)
         res = model.load_state_dict(sd, strict=False)
         assert not res.unexpected_keys, res.unexpected_keys[:5]
         assert not [k for k in res.missing_keys if "lora_" in k or k.startswith(("norms.", "head."))], "weights missing"
@@ -144,8 +144,7 @@ if qwen_names:
         return out
 
     for name in qwen_names:
-        folder = os.path.dirname(find("weights.pt", f"/{name}/"))
-        members[f"qwen:{name}"] = qwen_scores(folder)
+        members[f"qwen:{name}"] = qwen_scores(find(f"{name}__weights.pt")[: -len("__weights.pt")])
         P(f"qwen {name} done")
 
 # ---------------------------------------------------------------- TF-IDF SVM (fit here on train.csv)
