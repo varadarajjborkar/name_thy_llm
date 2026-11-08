@@ -123,6 +123,7 @@ if a.n_train:
 assert set(tr.model) <= set(classes), "label mismatch between train and val"
 
 (RUN / "classes.json").write_text(json.dumps(classes))
+(RUN / "run_args.json").write_text(json.dumps(vars(a)))  # resolved settings, needed to rebuild the model for inference
 tok = AutoTokenizer.from_pretrained(MODEL)
 if tok.pad_token is None:
     tok.pad_token = tok.eos_token
