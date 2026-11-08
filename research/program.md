@@ -49,6 +49,8 @@ Local CV maps to LB roughly as CV - 0.02 so far.
 ## Budget and etiquette
 * GPU budget: at most 14 Kaggle GPU hours in total for you this week, unless the main agent raises it. Track the
   running total in results.tsv (column gpu_h) from `total_minutes` in summary.json.
+* The account allows only 2 concurrent Kaggle GPU sessions. Before every push, check for `research/GPU_HOLD`:
+  if it exists, the main agent needs the slot, so wait until it is gone.
 * Run at most one Kaggle session at a time (kernel `ntl-research`). The kernel `ntl-qwen-train` belongs to the
   main agent; never push to, cancel or modify it, nor `ntl-qwen-blend`, `ntl-qwen-parity`, `ntl-tfidf-lgbm-blend`.
 * Never submit to the competition. Never use the local GPU (a training run owns it). Local CPU work: at most

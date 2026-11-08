@@ -15,3 +15,4 @@
 {"time": "2026-11-09 03:31", "decision": "run2 step 1500: raw 0.493, bal 0.520, val loss 1.366: new best, 1250 dip was noise. Continue to end", "evidence": "ckpt ensemble 1000+1250+1500: raw 0.499 bal 0.521", "result": ""}
 {"time": "2026-11-09 04:01", "decision": "run2 step 1750 eval logged", "evidence": "", "result": ""}
 {"time": "2026-11-09 04:29", "decision": "run2 FINAL: full-val raw 0.521 (subset 0.518 / bal 0.529). Blend qwen(final+1700) 0.8 + svm 0.1 + lgbm 0.1: OOF raw 0.543, sinkhorn 0.546", "evidence": "Kaggle account limit: 2 concurrent GPU sessions", "result": ""}
+{"time": "2026-11-09 05:03", "decision": "Submitted Qwen blend argmax (v1) and sinkhorn (v2) at 23:29/23:33 UTC; scores pending. Daily subs for UTC Nov 8 all used", "evidence": "", "result": ""}
