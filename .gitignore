@@ -4,3 +4,6 @@ __pycache__/
 submissions/
 kernel/submission.parquet
 issues.db
+.venv/
+models/
+checkpoints/
