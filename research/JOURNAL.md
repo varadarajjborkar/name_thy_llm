@@ -8,7 +8,8 @@ Newest entries last. Each entry: date/time, experiment id, what and why, result,
 * Blend 0.5/0.5 (T=3): CV 0.419, LB 0.402. Sinkhorn class balancing: 0.422.
 * Group assignment on that blend (research/assign_eval.py): oracle prompt groups 0.526, found groups 0.520.
   LB probe 2026-11-09: **0.367 vs 0.402 without it. Dead end**: the hidden test is not built like train.csv.
-  Decide on `raw`; sinkhorn is being checked on the LB next.
+  Decide on `raw`. Sinkhorn on the same blend: LB 0.398 vs 0.402 (OOF gain was only +0.3 there, so this is
+  inconclusive for Qwen, where sinkhorn adds about 5 points on validation). To be settled with a Qwen submission.
 * Qwen3-4B base, QLoRA r=16, multi-scale head (mean pool at depths 2..24, 24 layers kept). Stage 1 `run2` on
   pool_typo_60k (60k external passages, typography-filtered), lr 1e-4 / head 1e-3, warmup 0.1, 1,875 steps,
   local RTX 4060. Validation = train.csv minus fold 4, 900-row stratified subset:

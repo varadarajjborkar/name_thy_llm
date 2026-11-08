@@ -123,8 +123,8 @@ def assign_groups(lp, groups):
     return pred
 
 
-# LB results: argmax 0.402, groups 0.367 (the hidden test is not built like train.csv).
-POST = "sinkhorn"  # argmax | sinkhorn | groups
+# LB results: argmax 0.402, sinkhorn 0.398, groups 0.367 (the hidden test is not built like train.csv).
+POST = "argmax"  # argmax | sinkhorn | groups
 
 
 def sinkhorn(lp, iters=100):  # equal share of predictions per class; assumes a roughly balanced test set
