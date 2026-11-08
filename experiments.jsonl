@@ -7,3 +7,4 @@
 {"time": "2026-11-09 02:15", "decision": "Kaggle inference parity: qwen(run2 step500)+lgbm, sinkhorn, 900 non-lockbox rows: 0.464", "evidence": "local qwen-only on the same subset 0.452; pipeline verified offline on T4 fp16", "result": ""}
 {"time": "2026-11-09 02:15", "decision": "run2 step 900 loss 1.525 after 1.488: normal wiggle, trend down; no action", "evidence": "", "result": ""}
 {"time": "2026-11-09 02:28", "decision": "run2 step 1000: raw 0.463, balanced 0.502 (750: 0.393/0.454). Not flat: run stage 1 to the end", "evidence": "", "result": ""}
+{"time": "2026-11-09 02:43", "decision": "group assignment: OOF 0.419 -> 0.520 (found groups, ARI 0.97); LB probe submitted", "evidence": "train.csv has each prompt answered once by all 18 models", "result": ""}
