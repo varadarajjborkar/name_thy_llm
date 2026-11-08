@@ -44,3 +44,16 @@ raw (public notebooks claimed ~+9), and after stage 2 sinkhorn no longer helps (
 stage 2 already fixes the class-prior mismatch. 25 min per session (0.42 gpu_h); control 2 min.
 Decision: e001 is the baseline (raw 0.531). Added `--extra/--extra-n` to train_exp.py (dataset versioned) for the
 hostlike idea. Next: e002 lr 1e-4 / head 1e-3.
+
+### e002 lr 1e-4 / head 1e-3 (2026-11-09)
+What: e001 with lr doubled (body 1e-4, head 1e-3), everything else equal. Why: queue idea 3; train loss was still
+~1.1 at the end of e001 so a larger step may help.
+Result: f0 raw 0.541 / sinkhorn 0.561, f1 0.537 / 0.570. Mean raw 0.539 vs baseline 0.531 (+0.8, below the 1.0 keep
+rule), mean sinkhorn 0.566 vs 0.533 (+3.3, but sinkhorn is not the decision metric). Offline average of the e001 and
+e002 log-softmax outputs (same init, same folds): f0 0.543, f1 0.531, i.e. no ensemble gain, as expected from two
+runs differing only in lr. Train EMA loss at step 120 was 1.09 (e002) vs 1.12 (e001): 2 epochs on 2.1k rows still
+underfit, so more optimisation (lr and/or epochs) looks like the direction.
+Decision: not yet a candidate on raw. Skipping lr 2e-5 (the trend runs the other way, it would only confirm it).
+Next: e003 lr 2e-4 / head 2e-3 to find where the lr curve peaks, with per-epoch logits saved (--eval-every 67) so
+an epoch-1 vs epoch-2 ensemble can be tested offline.
+Note: results.tsv gpu_h_total was briefly mis-summed by my helper; fixed (cumulative total after e002 = 0.97 h).
