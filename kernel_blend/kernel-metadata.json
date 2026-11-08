@@ -1,0 +1,14 @@
+{
+  "id": "varadarajborkar/ntl-tfidf-lgbm-blend",
+  "title": "ntl-tfidf-lgbm-blend",
+  "code_file": "ntl_blend.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": false,
+  "dataset_sources": ["varadarajborkar/ntl-lgbm-style"],
+  "competition_sources": ["name-that-llm"],
+  "kernel_sources": [],
+  "model_sources": []
+}
