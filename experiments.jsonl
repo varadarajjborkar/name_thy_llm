@@ -10,3 +10,4 @@
 {"time": "2026-11-09 02:43", "decision": "group assignment: OOF 0.419 -> 0.520 (found groups, ARI 0.97); LB probe submitted", "evidence": "train.csv has each prompt answered once by all 18 models", "result": ""}
 {"time": "2026-11-09 02:45", "decision": "LB: group assignment 0.367 (argmax 0.402): dead end, hidden test not built like train.csv. Testing sinkhorn on LB next", "evidence": "", "result": ""}
 {"time": "2026-11-09 02:49", "decision": "LB: sinkhorn on TF-IDF+LGBM 0.398 vs argmax 0.402: inconclusive (OOF gain was +0.3); settle with Qwen", "evidence": "", "result": ""}
+{"time": "2026-11-09 02:59", "decision": "run2 step 1250: raw 0.430 (1000: 0.463), balanced 0.496 (0.502). Balanced flat, raw down: prior shift, not yet a trend. Continue; best_trainable keeps step 1000", "evidence": "train loss 1.49 -> 1.39; if 1500 drops again, stage 2 starts from step 1000 weights", "result": ""}
