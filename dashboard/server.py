@@ -30,9 +30,12 @@ NO_WINDOW = 0x08000000
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--port", type=int, default=8765)
-ap.add_argument("--run", default="run1")
+ap.add_argument("--run", default="", help="default: the most recently started run")
 ap.add_argument("--no-browser", action="store_true")
 args = ap.parse_args()
+if not args.run:
+    act = ROOT / "checkpoints" / "ACTIVE_RUN"
+    args.run = act.read_text().strip() if act.exists() and act.read_text().strip() else "run1"
 RUN = ROOT / "checkpoints" / args.run
 
 STEP_RE = re.compile(r"^(\d\d):(\d\d):(\d\d) step (\d+)/(\d+) loss ([\d.]+) lr ([\d.eE+-]+) eta ([\d.]+)h")
