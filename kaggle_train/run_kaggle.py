@@ -12,13 +12,19 @@ import subprocess
 import sys
 import time
 
-MODE = "smoke"  # smoke | real
+MODE = "real"  # smoke | real
+# Smoke test result (2026-11-09): fp16 and bf16 reach the same accuracy (0.152 vs 0.151 after 40 steps),
+# fp16 is ~4x faster on T4 (no native bf16). Real runs use fp16.
+# Each job: (run name, training parquet built below, extra args)
 JOBS = {
     "smoke": [
-        ("k_fp16", ["--compute-dtype", "fp16", "--n-train", "640", "--bs", "8", "--accum", "2"]),
-        ("k_bf16", ["--compute-dtype", "bf16", "--n-train", "640", "--bs", "8", "--accum", "2"]),
+        ("k_fp16", "pool_typo_60k.parquet", ["--compute-dtype", "fp16", "--n-train", "640", "--bs", "8", "--accum", "2"]),
+        ("k_bf16", "pool_typo_60k.parquet", ["--compute-dtype", "bf16", "--n-train", "640", "--bs", "8", "--accum", "2"]),
     ],
-    "real": [],  # filled in after the smoke test
+    "real": [  # data experiments against local run2 (pool only, same recipe and seed)
+        ("k_host1", "pool_host1.parquet", ["--compute-dtype", "fp16", "--eval-every", "250"]),
+        ("k_host3", "pool_host3.parquet", ["--compute-dtype", "fp16", "--eval-every", "250"]),
+    ],
 }
 COMMON = ["--arch", "ms", "--layers", "24", "--lr", "1e-4", "--head-lr", "1e-3", "--warmup", "0.1",
           "--lockbox-fold", "4", "--eval-n", "900", "--ckpt-every", "100"]
@@ -45,13 +51,22 @@ link(find("train.csv", "name-that-llm"), f"{W}/data/train.csv")
 for f in ("pool_typo_60k.parquet", "hostlike.parquet"):
     link(find(f), f"{W}/data/processed/{f}")
 link(os.path.dirname(find("config.json", "4b-base")), f"{W}/models/qwen3-4b-base")
+
+# pool + host-faithful extra rows (hostlike has no host prompts; checked in prep_hostlike.py)
+import pandas as pd  # noqa: E402
+pool = pd.read_parquet(f"{W}/data/processed/pool_typo_60k.parquet", columns=["text", "model"])
+host = pd.read_parquet(f"{W}/data/processed/hostlike.parquet", columns=["text", "model"])
+for k in (1, 3):
+    mix = pd.concat([pool] + [host] * k, ignore_index=True).sample(frac=1, random_state=0)
+    mix.to_parquet(f"{W}/data/processed/pool_host{k}.parquet", index=False)
+    print(f"pool_host{k}: {len(mix):,} rows", flush=True)
 print(subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
                      capture_output=True, text=True).stdout, flush=True)
 
 procs = []
-for gpu, (run, extra) in enumerate(JOBS[MODE]):
+for gpu, (run, train_file, extra) in enumerate(JOBS[MODE]):
     args = [sys.executable, f"{W}/finetune/train.py", "--run", run,
-            "--train", f"{W}/data/processed/pool_typo_60k.parquet"] + COMMON + extra
+            "--train", f"{W}/data/processed/{train_file}"] + COMMON + extra
     env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(gpu), PYTHONUNBUFFERED="1", TRANSFORMERS_VERBOSITY="error")
     os.makedirs(f"{W}/checkpoints/{run}", exist_ok=True)
     log = open(f"{W}/checkpoints/{run}/console.log", "w")
