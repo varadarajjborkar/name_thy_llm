@@ -80,3 +80,13 @@ Decision: discard 3 epochs; 2 epochs stays (more epochs do not help raw, accurac
 init and 2.1k rows). The limiting factor looks like data quantity or distribution, not optimisation.
 Next: wait for the GPU slot (main agent asked for research/GPU_SLOT_FREE before any push). Then e005 = e002 config
 on init `run2final` (the init that ships), then e006 = e005 + hostlike (--extra).
+
+Aside (CPU only, e002 outputs pooled over folds 0+1): per-model recall ranges from 0.13 (claude-fable-5) to 0.82
+(claude-opus-5). Under-predicted classes: claude-fable-5 (2.2% of predictions vs 5.6% expected), gemini-3.7-flash
+(3.0%), gpt-5.6-sol (4.2%); over-predicted: glm-5.3-flash, gpt-5.6-luna, gemini-3.8-flash (~7.5%). Largest confusions:
+gemini-3.7-flash -> gemini-3.8-flash (27), claude-fable-5 -> glm-5.3-flash (21), glm-5.3 -> glm-5.3-flash (18),
+gpt-5.6-sol -> luna/terra. Sibling versions of one vendor are the hard part, which is where the sinkhorn gain on
+raw comes from (a prior fix, not new information).
+
+### Main agent note (2026-11-09 05:20)
+LB: Qwen run2 (final+s1700) 0.8 + SVM 0.1 + LGBM 0.1: argmax 0.520, sinkhorn 0.521 (OOF 0.543 / 0.546). CV maps to LB at about -0.02; sinkhorn neutral on LB. Main agent runs the e002 config (lr 1e-4/1e-3, 2 epochs, init run2final) locally on folds 2 and 3 (runs s2f2, s2f3) and a full fit s2all, to complete OOF with e005 folds 0-1.
