@@ -73,6 +73,8 @@ ap.add_argument("--cv-folds", type=int, default=5)
 ap.add_argument("--label-smoothing", type=float, default=0.0)
 ap.add_argument("--compute-dtype", choices=["bf16", "fp16"], default="bf16",
                 help="fp16 for GPUs without native bf16 (Kaggle T4/P100); uses loss scaling")
+ap.add_argument("--extra", default="", help="parquet (text, model) appended to the stage-2 training rows (never to validation)")
+ap.add_argument("--extra-n", type=int, default=0, help="use a random sample of N extra rows (0 = all)")
 ap.add_argument("--lockbox-fold", type=int, default=-1,
                 help="stage 1: drop this GroupKFold fold of --val from validation, so no decision ever looks at it")
 a = ap.parse_args()
@@ -118,6 +120,11 @@ else:  # stage 2 cross-validation: folds grouped by prompt so no topic is shared
     tr_rows, va_rows = folds[a.cv_fold]
     tr = val.iloc[tr_rows][["text", "model"]].reset_index(drop=True)
     val = val.iloc[va_rows].reset_index(drop=True)
+if a.extra:
+    ex = pd.read_parquet(a.extra, columns=["text", "model"])
+    if a.extra_n:
+        ex = ex.sample(n=min(a.extra_n, len(ex)), random_state=a.seed)
+    tr = pd.concat([tr, ex], ignore_index=True)
 if a.n_train:
     tr = tr.iloc[: a.n_train]
 assert set(tr.model) <= set(classes), "label mismatch between train and val"
