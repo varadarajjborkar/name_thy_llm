@@ -13,10 +13,10 @@ import subprocess
 import sys
 import time
 
-EXP = "e000-smoke"  # experiment id, also printed in summary.json
+EXP = "e001c-control-no-update"  # experiment id, also printed in summary.json
 JOBS = [  # (job name, extra args for train_exp.py); job i runs on GPU i
-    ("f0", ["--cv-fold", "0", "--init", "INIT:run2", "--n-train", "64", "--epochs", "1"]),
-    ("f1", ["--cv-fold", "1", "--init", "INIT:run2", "--n-train", "64", "--epochs", "1"]),
+    ("f0", ["--cv-fold", "0", "--init", "INIT:run2s1000", "--n-train", "8", "--epochs", "1", "--lr", "1e-9", "--head-lr", "1e-9"]),
+    ("f1", ["--cv-fold", "1", "--init", "INIT:run2s1000", "--n-train", "8", "--epochs", "1", "--lr", "1e-9", "--head-lr", "1e-9"]),
 ]
 COMMON = ["--arch", "ms", "--layers", "24", "--compute-dtype", "fp16", "--eval-n", "0", "--ckpt-every", "1000000",
           "--eval-every", "1000000"]

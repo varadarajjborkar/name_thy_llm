@@ -32,3 +32,15 @@ fits well within that. raw 0.419 / 0.356, sinkhorn 0.428 / 0.426 (n_val 540 each
 init that already had a stage-1 head; it only shows the code path works.
 Decision: pipeline OK. Next e001: stage-2 baseline with run2s1000 init (lr 5e-5, head 5e-4, 2 epochs), then the
 near-zero-update control (--n-train 8, which yields 0 optimizer steps, i.e. exact stage-1 score) as e001c.
+
+### e001 stage-2 baseline and e001c zero-update control (2026-11-09)
+What: stage 2 on folds 0 and 1 from `run2s1000` (run2 step 1000), lr 5e-5, head lr 5e-4, 2 epochs (134 optimizer
+steps, ~2,144 rows), fp16, bs 8 x accum 4, maxlen 320, warmup 0.03 (train.py default). Control e001c: same init,
+`--n-train 8 --epochs 1`, which gives 0 optimizer steps, i.e. the pure stage-1 score on the same 540-row folds.
+Why: need the stage-2 reference and to know how much of the score is stage 2.
+Result (raw / sinkhorn): stage 1 only f0 0.461 / 0.504, f1 0.457 / 0.496 (mean raw 0.459, sinkhorn 0.500).
+Stage 2 baseline f0 0.528 / 0.522, f1 0.533 / 0.544 (mean raw 0.531, sinkhorn 0.533). So stage 2 adds +7.1 points
+raw (public notebooks claimed ~+9), and after stage 2 sinkhorn no longer helps (+0.3 vs +4.1 on stage 1 weights):
+stage 2 already fixes the class-prior mismatch. 25 min per session (0.42 gpu_h); control 2 min.
+Decision: e001 is the baseline (raw 0.531). Added `--extra/--extra-n` to train_exp.py (dataset versioned) for the
+hostlike idea. Next: e002 lr 1e-4 / head 1e-3.
