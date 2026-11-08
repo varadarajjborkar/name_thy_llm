@@ -22,18 +22,18 @@ Local CV maps to LB roughly as CV - 0.02 so far.
 * `research/JOURNAL.md` (narrative, newest last) and `research/results.tsv` (one row per experiment).
 
 ## Key facts
-* Every train.csv prompt is answered once by each of the 18 models. Grouping passages by topic and assigning
-  one model per passage per group (Hungarian) lifted the TF-IDF+LGBM OOF from 0.419 to 0.520; recovered groups
-  match true prompts with ARI 0.97. So the metric you optimise is **`grouped`** (found groups), with raw and
-  sinkhorn as context. Whether the hidden test has this structure is being checked on the LB right now; the
-  main agent will write the answer into the journal.
+* The metric you optimise is **`raw`** (plain argmax balanced accuracy, mean of the screened folds). Report
+  `sinkhorn` as context only: it assumes a balanced test set and has not been validated on the LB.
+* Group assignment is a dead end: every train.csv prompt is answered once by each of the 18 models and that
+  structure lifted OOF from 0.419 to 0.520, but the LB fell from 0.402 to 0.367 with it, so the hidden test is
+  built differently. Ignore `grouped` / `grouped_oracle` in summary.json for decisions.
 * Stage-2 recipe from public notebooks: lr 5e-5, head lr 5e-4, 2 epochs, reported about +9 points over stage 1.
 * T4 has no bf16: always `--compute-dtype fp16` (tested: same accuracy, 4x faster). About 9 s per optimizer
   step at batch 32. A stage-2 fold (about 2,160 train rows, 2 epochs) is about 20-25 minutes.
 
 ## Protocol (the rules that keep results honest)
 1. **Fold 4 is the lockbox.** Never use `--cv-fold 4`, never evaluate on fold 4, never read its scores.
-2. **Screen on folds 0 and 1** (one per GPU, same config). Score = mean `grouped` of the two folds.
+2. **Screen on folds 0 and 1** (one per GPU, same config). Score = mean `raw` of the two folds.
 3. **Keep rule:** a change is a candidate if it beats the current best by >= 1.0 point on folds 0+1 (one fold is
    about 540 rows: noise is about +-2 points per fold). Confirm a candidate on folds 2+3 before adopting it as
    the new baseline. A change that is flat (within 1 point) and adds complexity or time: discard.
