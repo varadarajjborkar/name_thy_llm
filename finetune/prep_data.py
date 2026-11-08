@@ -11,7 +11,7 @@ Sampling:
   3. Inside a class, spread picks equally across source_dataset (again water-filling),
      then prefer many distinct prompt_group values by shuffling groups first.
 
-Run:  .venv/Scripts/python.exe prep_data.py [--n 100000] [--seed 42] [--drop-kb-proxy]
+Run:  .venv/Scripts/python.exe finetune/prep_data.py [--n 100000] [--seed 42] [--drop-kb-proxy]
 """
 import argparse
 from pathlib import Path
@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 POOL = ROOT / "data/external/name-that-llm-open-pool/ntl_open_pool.parquet"
 OUT = ROOT / "data/processed"
 DEFECT_FLAGS = ["flag_gemini37_routing_risk", "flag_near_train_prompt", "flag_train_prompt_regen"]

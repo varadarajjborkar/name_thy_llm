@@ -16,7 +16,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 
-DATA = "/Users/varadarajborkar/Desktop/call_llm/data"
+DATA = str(__import__("pathlib").Path(__file__).resolve().parents[1] / "data")
 SENT_SPLIT = re.compile(r"[.!?;:\n]+")
 WORD = re.compile(r"[a-z][a-z'\-]*")
 LAMBDA = 2.0  # backoff strength toward the class unigram distribution

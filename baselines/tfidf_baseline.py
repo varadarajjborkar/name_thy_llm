@@ -11,7 +11,7 @@ from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC
 
-DATA = "/Users/varadarajborkar/Desktop/call_llm/data"
+DATA = str(__import__("pathlib").Path(__file__).resolve().parents[1] / "data")
 
 
 def style_features(texts):
