@@ -191,8 +191,7 @@ def system_events():
 
 def run_setup():
     """What this run trains on, read from its own log (so the page never shows another run's setup)."""
-    txt = "
-".join(read_lines(RUN / "train.log")[:40])
+    txt = "\n".join(read_lines(RUN / "train.log")[:40])
     n = re.search(r"data: train ([\d,]+)", txt)
     ms = re.search(r"multi-scale: (\d+) layers", txt)
     arch = f"first {ms.group(1)} layers, multi-depth pooling" if ms else "all layers, last-token head"
