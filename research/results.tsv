@@ -1,0 +1,3 @@
+exp	date	idea	config	f0	f1	f2	f3	mean_grouped	mean_sinkhorn	mean_raw	decision	gpu_h	gpu_h_total
+e000	2026-11-09	smoke: pipeline proof	init run2, 64 rows, 1 epoch, folds 0,1 (not a result)	0.4185	0.3556			0.5713	0.4269	0.387	n/a smoke	0.07	0.07
+e001	2026-11-09	stage-2 baseline	init run2s1000, lr 5e-5, head-lr 5e-4, 2 epochs, ~2160 rows/fold, fp16, bs8x4, maxlen 320	0.5278	0.5333			0.7148	0.5333	0.5306	baseline (current best)	0.42	0.49
