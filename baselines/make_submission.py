@@ -9,7 +9,7 @@ from sklearn.svm import LinearSVC
 
 from tfidf_baseline import DATA, style_features
 
-OUT = "/Users/varadarajborkar/Desktop/call_llm/submissions"
+OUT = str(__import__("pathlib").Path(__file__).resolve().parents[1] / "submissions")
 STYLE_W, C = 0.3, 1.0  # best config from grouped CV (~36.8%)
 
 train = pd.read_csv(f"{DATA}/train.csv")
