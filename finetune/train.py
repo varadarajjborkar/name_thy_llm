@@ -6,6 +6,16 @@ Design goals: survive power cuts, crashes and pauses without losing more than on
   * Pause: create <run>/PAUSE (or Ctrl+C). The script finishes the step, saves, exits with code 10.
   * Trained on external data only. Validation is the competition train.csv (never trained on).
 
+Two architectures:
+  --arch seqcls   Qwen's built-in sequence-classification head (last token, all layers). Used by run1.
+  --arch ms       "multi-scale": keep only the first --layers transformer layers (style lives low and mid,
+                  the top layers mostly encode topic), mean-pool the hidden states at several depths, LayerNorm
+                  each, concatenate, linear head. Follows the public "LoRA24" recipe for this competition.
+Two stages:
+  stage 1  train on the external pool, validate on the competition train.csv
+  stage 2  --init <stage-1 weights> --cv-fold k: fine-tune on train.csv minus fold k, validate on fold k
+           (GroupKFold by prompt_id), or --cv-fold -2 to train on all of train.csv for the submission.
+
 Normally launched through ctl.py. Direct use:
   .venv/Scripts/python.exe finetune/train.py --run run1
 Exit codes: 0 finished, 10 paused, anything else = crash (ctl.py supervisor retries from the last checkpoint).
@@ -26,7 +36,9 @@ import pandas as pd
 import torch
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from sklearn.metrics import balanced_accuracy_score
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, BitsAndBytesConfig
+from sklearn.model_selection import GroupKFold
+from transformers import (AutoConfig, AutoModel, AutoModelForSequenceClassification, AutoTokenizer,
+                          BitsAndBytesConfig)
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = ROOT / "models/qwen3-4b-base"
@@ -50,6 +62,17 @@ ap.add_argument("--eval-every", type=int, default=500, help="optimizer steps")
 ap.add_argument("--eval-n", type=int, default=900, help="stratified val rows for periodic eval")
 ap.add_argument("--seed", type=int, default=42)
 ap.add_argument("--lora-r", type=int, default=16)
+ap.add_argument("--arch", choices=["seqcls", "ms"], default="seqcls")
+ap.add_argument("--layers", type=int, default=0, help="ms only: keep the first N transformer layers (0 = all)")
+ap.add_argument("--depths", default="2,4,6,8,12,16,20,24", help="ms only: layers whose hidden states are pooled")
+ap.add_argument("--init", default="", help="start from these trainable weights (a .pt file or a run's checkpoint dir)")
+ap.add_argument("--cv-fold", type=int, default=-1,
+                help="-1: train on --train, validate on --val. k>=0: train on --val minus fold k, validate on fold k. "
+                     "-2: train on all of --val (no validation)")
+ap.add_argument("--cv-folds", type=int, default=5)
+ap.add_argument("--label-smoothing", type=float, default=0.0)
+ap.add_argument("--lockbox-fold", type=int, default=-1,
+                help="stage 1: drop this GroupKFold fold of --val from validation, so no decision ever looks at it")
 a = ap.parse_args()
 
 RUN = ROOT / "checkpoints" / a.run
@@ -81,7 +104,18 @@ if (RUN / "DONE_TRAINING").exists():
 val = pd.read_csv(a.val)
 classes = sorted(val.model.unique())
 cid = {c: i for i, c in enumerate(classes)}
-tr = pd.read_parquet(a.train, columns=["text", "model"])
+if a.cv_fold == -1:
+    tr = pd.read_parquet(a.train, columns=["text", "model"])
+    if a.lockbox_fold >= 0:  # the lockbox stays unseen until the final, one-time check
+        lock_rows = list(GroupKFold(n_splits=a.cv_folds).split(val, val.model, val.prompt_id))[a.lockbox_fold][1]
+        val = val.drop(index=val.index[lock_rows]).reset_index(drop=True)
+elif a.cv_fold == -2:  # final stage 2: all host data, keep a tiny copy as a smoke check only
+    tr = val[["text", "model"]].copy()
+else:  # stage 2 cross-validation: folds grouped by prompt so no topic is shared between train and validation
+    folds = list(GroupKFold(n_splits=a.cv_folds).split(val, val.model, val.prompt_id))
+    tr_rows, va_rows = folds[a.cv_fold]
+    tr = val.iloc[tr_rows][["text", "model"]].reset_index(drop=True)
+    val = val.iloc[va_rows].reset_index(drop=True)
 if a.n_train:
     tr = tr.iloc[: a.n_train]
 assert set(tr.model) <= set(classes), "label mismatch between train and val"
@@ -103,8 +137,11 @@ tr_ids = encode(tr.text, a.maxlen)
 tr_len = np.array([len(x) for x in tr_ids])
 tr_y = tr.model.map(cid).to_numpy()
 # fixed stratified subset of val for periodic eval; full val at the end
-per_class = max(1, a.eval_n // len(classes))
-sub_idx = val.groupby("model").sample(n=per_class, random_state=0).index.to_numpy()
+if a.eval_n and a.eval_n < len(val):
+    per_class = max(1, a.eval_n // len(classes))
+    sub_idx = val.groupby("model").sample(n=per_class, random_state=0).index.to_numpy()
+else:  # --eval-n 0: evaluate on every validation row
+    sub_idx = np.arange(len(val))
 val_ids = encode(val.text, a.eval_maxlen)
 val_y = val.model.map(cid).to_numpy()
 P(f"data: train {len(tr_ids):,} val {len(val_ids):,} (periodic eval on {len(sub_idx)}) tokenized in {time.time() - t0:.0f}s; mean len {tr_len.mean():.0f}")
@@ -143,16 +180,61 @@ def collate(ids_list, idx):
 bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
                          bnb_4bit_compute_dtype=torch.bfloat16)
 torch.manual_seed(a.seed)
-model = AutoModelForSequenceClassification.from_pretrained(
-    MODEL, num_labels=len(classes), quantization_config=bnb, dtype=torch.bfloat16, device_map={"": 0})
-model.config.pad_token_id = PAD
-model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
-model = get_peft_model(model, LoraConfig(
-    r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.05, task_type="SEQ_CLS",
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]))
+LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+
+
+class MultiScale(torch.nn.Module):
+    """Mean-pooled hidden states at several depths -> LayerNorm each -> concat -> dropout -> linear."""
+
+    def __init__(self, base, depths, hidden, n_classes):
+        super().__init__()
+        self.base, self.depths = base, depths
+        self.norms = torch.nn.ModuleList([torch.nn.LayerNorm(hidden) for _ in depths])
+        self.drop = torch.nn.Dropout(0.1)
+        self.head = torch.nn.Linear(hidden * len(depths), n_classes)
+
+    def forward(self, input_ids, attention_mask):
+        hs = self.base(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True).hidden_states
+        m = attention_mask.unsqueeze(-1).float()
+        denom = m.sum(1).clamp(min=1.0)
+        feats = [norm((hs[d].float() * m).sum(1) / denom) for norm, d in zip(self.norms, self.depths)]
+        return self.head(self.drop(torch.cat(feats, -1)))
+
+
+if a.arch == "seqcls":
+    model = AutoModelForSequenceClassification.from_pretrained(
+        MODEL, num_labels=len(classes), quantization_config=bnb, dtype=torch.bfloat16, device_map={"": 0})
+    model.config.pad_token_id = PAD
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.05,
+                                             task_type="SEQ_CLS", target_modules=LORA_TARGETS))
+else:
+    cfg = AutoConfig.from_pretrained(MODEL)
+    n_layers = a.layers or cfg.num_hidden_layers
+    depths = [int(x) for x in a.depths.split(",")]
+    assert max(depths) <= n_layers and min(depths) >= 1, f"--depths must lie in 1..{n_layers}"
+    cfg.num_hidden_layers = n_layers  # the unused top layers are never even loaded
+    if getattr(cfg, "layer_types", None):
+        cfg.layer_types = cfg.layer_types[:n_layers]
+    base = AutoModel.from_pretrained(MODEL, config=cfg, quantization_config=bnb, dtype=torch.bfloat16,
+                                     device_map={"": 0})
+    base.norm = torch.nn.Identity()  # the deepest pooled layer is read raw, like the shallower ones
+    base = prepare_model_for_kbit_training(base, use_gradient_checkpointing=True)
+    base = get_peft_model(base, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.05,
+                                           target_modules=LORA_TARGETS))
+    model = MultiScale(base, depths, cfg.hidden_size, len(classes)).cuda()
+    P(f"multi-scale: {n_layers} layers, pooling depths {depths}")
+
+
+def logits_of(x, m):
+    out = model(input_ids=x, attention_mask=m)
+    return out.logits if hasattr(out, "logits") else out
+
+
 named = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
-head = [p for n, p in named if "score" in n]
-body = [p for n, p in named if "score" not in n]
+is_head = lambda n: "score" in n or n.startswith(("norms.", "head."))
+head = [p for n, p in named if is_head(n)]
+body = [p for n, p in named if not is_head(n)]
 assert head and body
 P("trainable dtypes:", sorted({str(p.dtype) for _, p in named}), f"({sum(p.numel() for _, p in named) / 1e6:.1f}M params)")
 opt = torch.optim.AdamW([{"params": body, "lr": a.lr, "base": a.lr},
@@ -177,7 +259,7 @@ def save_ckpt(step, best):
     TMP.mkdir()
     with open(TMP / "state.pt", "wb") as fh:
         torch.save({"trainable": {n: p.detach().cpu() for n, p in named}, "opt": opt.state_dict(),
-                    "step": step, "best": best, "args": vars(a)}, fh)
+                    "step": step, "best": best, "args": vars(a), "ema": ema}, fh)
         fh.flush()
         os.fsync(fh.fileno())  # data on disk before we declare it complete
     with open(TMP / "OK", "w") as fh:
@@ -198,16 +280,19 @@ def load_ckpt():
         if (d / "OK").exists():
             try:
                 st = torch.load(d / "state.pt", map_location="cpu", weights_only=False)
-                for k in ("seed", "bs", "accum", "epochs", "n_train", "lora_r", "maxlen", "train", "lr", "head_lr", "warmup"):
-                    if st["args"].get(k) != getattr(a, k):
-                        P(f"FATAL: --{k} changed since the checkpoint ({st['args'].get(k)} -> {getattr(a, k)}). "
+                for k in ("seed", "bs", "accum", "epochs", "n_train", "lora_r", "maxlen", "train", "lr", "head_lr",
+                          "warmup", "arch", "layers", "depths", "cv_fold", "cv_folds", "label_smoothing", "init",
+                          "lockbox_fold"):
+                    old = st["args"].get(k, ap.get_default(k))  # checkpoints from before an option existed
+                    if old != getattr(a, k):
+                        P(f"FATAL: --{k.replace('_', '-')} changed since the checkpoint ({old} -> {getattr(a, k)}). "
                           f"Resuming would silently use a different batch order/schedule. Use the old value or a new --run.")
                         sys.exit(4)
                 bad = model.load_state_dict(st["trainable"], strict=False).unexpected_keys
                 assert not bad, bad
                 opt.load_state_dict(st["opt"])
                 P(f"resumed from {d.name} at step {st['step']}")
-                return st["step"], st["best"]
+                return st["step"], st["best"], st.get("ema")
             except SystemExit:
                 raise
             except Exception as e:  # corrupt checkpoint: fall back to the previous one
@@ -216,10 +301,21 @@ def load_ckpt():
         P("FATAL: checkpoints exist but none could be loaded. Refusing to restart from step 0 "
           "(that would overwrite them). Inspect the log above, or move the checkpoints folder away on purpose.")
         sys.exit(4)
-    return 0, 0.0
+    return 0, 0.0, None
 
 
-step, best = load_ckpt()
+ema = None
+step, best, ema = load_ckpt()
+if step == 0 and a.init:  # stage 2: start from stage-1 weights (fresh optimizer and schedule)
+    src = Path(a.init)
+    src = src / "ckpt_latest" / "state.pt" if src.is_dir() else src
+    sd = torch.load(src, map_location="cpu", weights_only=False)
+    sd = sd.get("trainable", sd)
+    res = model.load_state_dict(sd, strict=False)
+    own = {n for n, _ in named}
+    missing = [k for k in res.missing_keys if k in own]
+    assert not res.unexpected_keys and not missing, (res.unexpected_keys[:5], missing[:5])
+    P(f"initialised {len(sd)} trainable tensors from {src}")
 
 
 # ------------------------------------------------------------------ eval
@@ -231,7 +327,7 @@ def evaluate(idx, bs=16):
     for s in range(0, len(order), bs):
         b = order[s:s + bs]
         x, m = collate(val_ids, b)
-        out[b] = model(input_ids=x, attention_mask=m).logits.float().cpu().numpy()
+        out[b] = logits_of(x, m).float().cpu().numpy()
     model.train()
     return out
 
@@ -240,12 +336,21 @@ def bal_acc(logits, idx):
     return balanced_accuracy_score(val_y[idx], logits[idx].argmax(1))
 
 
+def recall_report(logits, idx):
+    """Per-model recall (share of each model's passages identified) and the full confusion matrix.
+    cm[i][j] = passages written by model i that were predicted as model j. Mean recall = balanced accuracy."""
+    cm = np.zeros((len(classes), len(classes)), dtype=np.int64)
+    np.add.at(cm, (val_y[idx], logits[idx].argmax(1)), 1)
+    recall = cm.diagonal() / np.maximum(cm.sum(1), 1)
+    return [round(float(r), 4) for r in recall], cm.tolist()
+
+
 # ------------------------------------------------------------------ train
 model.train()
 opt.zero_grad(set_to_none=True)
 micro_per_epoch = steps_per_epoch * a.accum
 plans = {}
-ema, nonfinite, t_start, step0 = None, 0, time.time(), step
+nonfinite, t_start, step0 = 0, time.time(), step  # ema comes from the checkpoint, so a resume does not reset it
 P(f"start at step {step}/{total_steps}")
 
 while step < total_steps:
@@ -253,15 +358,15 @@ while step < total_steps:
     if ep not in plans:
         plans = {ep: epoch_plan(ep)}
     plan = plans[ep]
-    base = (step % steps_per_epoch) * a.accum
+    first_micro = (step % steps_per_epoch) * a.accum
     for g in opt.param_groups:
         g["lr"] = g["base"] * lr_mult(step)
     tot = 0.0
     for j in range(a.accum):
-        idx = plan[base + j]
+        idx = plan[first_micro + j]
         x, m = collate(tr_ids, idx)
         y = torch.tensor(tr_y[idx], device="cuda")
-        loss = torch.nn.functional.cross_entropy(model(input_ids=x, attention_mask=m).logits.float(), y)
+        loss = torch.nn.functional.cross_entropy(logits_of(x, m).float(), y, label_smoothing=a.label_smoothing)
         if not torch.isfinite(loss):
             nonfinite += 1
             if nonfinite > 20:
@@ -285,8 +390,10 @@ while step < total_steps:
         lg = evaluate(sub_idx)
         acc = bal_acc(lg, sub_idx)
         P(f"EVAL step {step} balanced_acc {acc:.4f} (subset {len(sub_idx)})")
+        rec, cm = recall_report(lg, sub_idx)
         with open(RUN / "metrics.jsonl", "a") as f:
-            f.write(json.dumps({"step": step, "loss": ema, "val_bal_acc": acc, "t": time.time()}) + "\n")
+            f.write(json.dumps({"step": step, "loss": ema, "val_bal_acc": acc, "t": time.time(),
+                                "recall": rec, "confusion": cm}) + "\n")
         if acc > best:
             best = acc
             torch.save({n: p.detach().cpu() for n, p in named}, RUN / "best_tmp.pt")
@@ -301,10 +408,15 @@ while step < total_steps:
         sys.exit(EXIT_PAUSED)
 
 # ------------------------------------------------------------------ finish
-model.save_pretrained(RUN / "final")
+torch.save({n: p.detach().cpu() for n, p in named}, RUN / "final_trainable.pt")  # LoRA + head, for stage 2 / inference
+if a.arch == "seqcls":
+    model.save_pretrained(RUN / "final")
 lg = evaluate(np.arange(len(val_ids)))
 acc = bal_acc(lg, np.arange(len(val_ids)))
 np.save(RUN / "val_logits.npy", lg)
 val[["id", "prompt_id", "model"]].to_csv(RUN / "val_ids.csv", index=False)
-P(f"FINAL full-val balanced_acc {acc:.4f}; adapter in {RUN / 'final'}; logits in val_logits.npy")
+note = " (trained on these rows, not a real score)" if a.cv_fold == -2 else ""
+P(f"FINAL full-val balanced_acc {acc:.4f}{note}; weights in final_trainable.pt; logits in val_logits.npy")
+rec, cm = recall_report(lg, np.arange(len(val_ids)))
+(RUN / "final_eval.json").write_text(json.dumps({"bal_acc": acc, "classes": classes, "recall": rec, "confusion": cm}))
 (RUN / "DONE_TRAINING").write_text(f"{acc:.4f}")

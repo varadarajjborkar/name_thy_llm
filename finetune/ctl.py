@@ -24,6 +24,9 @@ argv = sys.argv[1:]
 run = "run1"
 if argv[:1] == ["--run"]:
     run, argv = argv[1], argv[2:]
+ACTIVE = ROOT / "checkpoints" / "ACTIVE_RUN"  # the run most recently started; the watchdog follows it
+if argv[:1] == ["watchdog"] and ACTIVE.exists() and ACTIVE.read_text().strip():
+    run = ACTIVE.read_text().strip()
 RUN = ROOT / "checkpoints" / run
 RUN.mkdir(parents=True, exist_ok=True)
 PY = str(ROOT / ".venv" / "Scripts" / "python.exe")
@@ -182,6 +185,7 @@ def main():
             print(f"note: run already has saved settings {json.loads(args_f.read_text())}; ignoring the new ones.")
         pid = launch_detached()
         (RUN / "supervisor.pid").write_text(str(pid))
+        ACTIVE.write_text(run)
         print(f"started run '{run}'. Check with: ctl.py status")
     elif cmd == "pause":
         (RUN / "PAUSE").write_text("pause")
