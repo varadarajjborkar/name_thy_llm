@@ -240,6 +240,15 @@ def bal_acc(logits, idx):
     return balanced_accuracy_score(val_y[idx], logits[idx].argmax(1))
 
 
+def recall_report(logits, idx):
+    """Per-model recall (share of each model's passages identified) and the full confusion matrix.
+    cm[i][j] = passages written by model i that were predicted as model j. Mean recall = balanced accuracy."""
+    cm = np.zeros((len(classes), len(classes)), dtype=np.int64)
+    np.add.at(cm, (val_y[idx], logits[idx].argmax(1)), 1)
+    recall = cm.diagonal() / np.maximum(cm.sum(1), 1)
+    return [round(float(r), 4) for r in recall], cm.tolist()
+
+
 # ------------------------------------------------------------------ train
 model.train()
 opt.zero_grad(set_to_none=True)
@@ -285,8 +294,10 @@ while step < total_steps:
         lg = evaluate(sub_idx)
         acc = bal_acc(lg, sub_idx)
         P(f"EVAL step {step} balanced_acc {acc:.4f} (subset {len(sub_idx)})")
+        rec, cm = recall_report(lg, sub_idx)
         with open(RUN / "metrics.jsonl", "a") as f:
-            f.write(json.dumps({"step": step, "loss": ema, "val_bal_acc": acc, "t": time.time()}) + "\n")
+            f.write(json.dumps({"step": step, "loss": ema, "val_bal_acc": acc, "t": time.time(),
+                                "recall": rec, "confusion": cm}) + "\n")
         if acc > best:
             best = acc
             torch.save({n: p.detach().cpu() for n, p in named}, RUN / "best_tmp.pt")
@@ -307,4 +318,6 @@ acc = bal_acc(lg, np.arange(len(val_ids)))
 np.save(RUN / "val_logits.npy", lg)
 val[["id", "prompt_id", "model"]].to_csv(RUN / "val_ids.csv", index=False)
 P(f"FINAL full-val balanced_acc {acc:.4f}; adapter in {RUN / 'final'}; logits in val_logits.npy")
+rec, cm = recall_report(lg, np.arange(len(val_ids)))
+(RUN / "final_eval.json").write_text(json.dumps({"bal_acc": acc, "classes": classes, "recall": rec, "confusion": cm}))
 (RUN / "DONE_TRAINING").write_text(f"{acc:.4f}")

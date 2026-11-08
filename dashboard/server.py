@@ -134,14 +134,40 @@ def parse_train_log():
 
 
 def parse_metrics():
-    out = []
+    out, last_rec = [], None
     for line in read_lines(RUN / "metrics.jsonl"):
         try:
             r = json.loads(line)
             out.append({"step": r["step"], "acc": r["val_bal_acc"]})
+            if r.get("recall") and r.get("confusion"):
+                last_rec = r
         except Exception:
             pass
-    return out
+    return out, last_rec
+
+
+def recall_info(last_rec):
+    """Per-model recall for the newest eval, plus who each model is most often mistaken for."""
+    src, step = "subset of 900 passages", None
+    rec = cm = None
+    try:
+        fin = json.loads((RUN / "final_eval.json").read_text())
+        rec, cm, src, step = fin["recall"], fin["confusion"], "full validation set (2,699 passages)", "final"
+    except Exception:
+        if last_rec:
+            rec, cm, step = last_rec["recall"], last_rec["confusion"], last_rec["step"]
+    try:
+        classes = json.loads((RUN / "classes.json").read_text())
+    except Exception:
+        classes = []
+    if not rec or len(classes) != len(rec):
+        return None
+    rows = []
+    for i, c in enumerate(classes):
+        total = sum(cm[i]) or 1
+        j = max((k for k in range(len(classes)) if k != i), key=lambda k: cm[i][k])
+        rows.append({"model": c, "recall": rec[i], "n": total, "confused_with": classes[j], "confused_share": round(cm[i][j] / total, 4)})
+    return {"step": step, "source": src, "rows": rows}
 
 
 def system_events():
@@ -156,7 +182,7 @@ def system_events():
 
 def build_state():
     pts, speeds, events, bs, total, active = parse_train_log()
-    evals = parse_metrics()
+    evals, last_rec = parse_metrics()
     prog = {}
     try:
         prog = json.loads((RUN / "progress.json").read_text())
@@ -202,7 +228,7 @@ def build_state():
         "active_seconds": active, "speed": speed, "eta_seconds": eta_s, "finish": finish,
         "last_checkpoint": prog.get("step", 0), "best_acc": prog.get("best", 0),
         "has_checkpoint": any((RUN / d / "OK").exists() for d in ("ckpt_latest", "ckpt_prev", "ckpt_tmp")),
-        "loss": pts, "evals": evals, "speed_pts": speeds,
+        "loss": pts, "evals": evals, "speed_pts": speeds, "recall": recall_info(last_rec),
         "gpu": dict(gpu_now), "gpu_hist": list(gpu_hist)[-360:],
         "disk_free_gb": round(du.free / 2**30, 1), "run_dir_gb": cached("size", 60, ckpt_size_gb),
         "watchdog": cached("wd", 60, watchdog_state),

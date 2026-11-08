@@ -166,6 +166,12 @@
     </div>
   </section>
 
+  <section class="card" style="margin-top:16px" aria-label="Recall by model">
+    <div class="chart-head"><h2>Recall by model</h2><span class="note" id="recSrc"></span></div>
+    <p class="cap">Of the passages each model really wrote, the share we identified correctly. The average of these 18 bars is the balanced accuracy above. A short bar is a model that is hard to recognise. Hover a bar to see what it gets mistaken for.</p>
+    <div class="chart" id="cRecall"></div><div id="tRecall"></div>
+  </section>
+
   <section class="grid two" aria-label="Activity">
     <div class="card"><h2>Training events</h2><ul class="ev" id="evTrain"></ul></div>
     <div class="card"><h2>Restarts, pauses and watchdog</h2><ul class="ev" id="evSys"></ul></div>
@@ -272,6 +278,44 @@ function chart(host, cfg) {
   hit.addEventListener("focus", () => { const r = svg.getBoundingClientRect(); show(r.left + X(pts[pts.length - 1].x) * r.width / W); });
   hit.addEventListener("blur", hide);
 }
+/* horizontal bars: one per model, rounded at the data end, square on the baseline */
+function barChart(host, rows, color, ariaLabel, empty) {
+  host.textContent = "";
+  if (!rows || !rows.length) { const d = document.createElement("div"); d.className = "empty"; d.textContent = empty; host.appendChild(d); return; }
+  const W = Math.max(host.clientWidth, 300), rowH = 26, gap = 6, m = { l: Math.min(150, W * 0.38), r: 52, t: 22, b: 8 };
+  const H = m.t + m.b + rows.length * (rowH + gap);
+  const vmax = Math.max(0.5, ...rows.map((r) => r.recall * 1.12)), X = (v) => m.l + v / vmax * (W - m.l - m.r);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": ariaLabel }, host);
+  ticks(0, vmax, 5).forEach((v) => {
+    el("line", { x1: X(v), x2: X(v), y1: m.t - 4, y2: H - m.b, stroke: css("--grid"), "stroke-width": 1 }, svg);
+    const t = el("text", { x: X(v), y: 11, "text-anchor": "middle" }, svg); t.textContent = pct(v, 0);
+  });
+  el("line", { x1: X(1 / 18), x2: X(1 / 18), y1: m.t - 4, y2: H - m.b, stroke: css("--muted"), "stroke-width": 1, "stroke-dasharray": "5 4" }, svg);
+  el("line", { x1: m.l, x2: m.l, y1: m.t - 4, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1 }, svg);
+  const tip = document.createElement("div"); tip.className = "tip"; host.appendChild(tip);
+  rows.forEach((r, i) => {
+    const y = m.t + i * (rowH + gap), w = Math.max(X(r.recall) - m.l, 0), rad = Math.min(4, w / 2, rowH / 2);
+    const lab = el("text", { x: m.l - 10, y: y + rowH / 2 + 4, "text-anchor": "end", class: "reftxt" }, svg); lab.textContent = r.model;
+    if (w > 0) el("path", { d: `M${m.l} ${y}h${w - rad}a${rad} ${rad} 0 0 1 ${rad} ${rad}v${rowH - 2 * rad}a${rad} ${rad} 0 0 1 ${-rad} ${rad}h${-(w - rad)}z`, fill: color }, svg);
+    const val = el("text", { x: m.l + w + 7, y: y + rowH / 2 + 4, class: "reftxt" }, svg); val.textContent = pct(r.recall, 0);
+    const hit = el("rect", { x: 0, y: y - gap / 2, width: W, height: rowH + gap, fill: "transparent", tabindex: 0 }, svg);
+    const show = (cx) => {
+      tip.textContent = "";
+      const v = document.createElement("div"); v.className = "v";
+      const k = document.createElement("span"); k.className = "k"; k.style.background = color;
+      v.append(k, document.createTextNode(`${r.model}: ${pct(r.recall, 1)}`));
+      const x1 = document.createElement("div"); x1.className = "x"; x1.textContent = `Mistaken most often for ${r.confused_with} (${pct(r.confused_share, 0)} of its passages)`;
+      const x2 = document.createElement("div"); x2.className = "x"; x2.textContent = `${r.n} passages checked`;
+      tip.append(v, x1, x2); tip.style.display = "block";
+      const b = svg.getBoundingClientRect(), px = cx - b.left, py = (y + rowH) * (b.height / H);
+      tip.style.left = Math.min(Math.max(px + 14, 0), Math.max(b.width - tip.offsetWidth, 0)) + "px"; tip.style.top = py + "px";
+    };
+    hit.addEventListener("pointermove", (e) => show(e.clientX));
+    hit.addEventListener("pointerleave", () => (tip.style.display = "none"));
+    hit.addEventListener("focus", () => { const b = svg.getBoundingClientRect(); show(b.left + X(r.recall) * b.width / W); });
+    hit.addEventListener("blur", () => (tip.style.display = "none"));
+  });
+}
 /* a text table so every chart value is reachable without hovering */
 function table(host, title, cols, rows) {
   host.textContent = "";
@@ -359,6 +403,12 @@ function render(s) {
     table($("tGpu"), "Show data", ["Time", "Temp °C", "Busy %"], GH.map((p) => [new Date(p.t * 1000).toLocaleTimeString(), p.temp, p.util]));
   });
 
+  const RC = s.recall;
+  $("recSrc").textContent = RC ? `${RC.step === "final" ? "Final result" : "Step " + nf(RC.step)} · ${RC.source}` : "";
+  draw("recall", $("cRecall"), $("tRecall"), RC ? RC.step + ":" + RC.rows.map((r) => r.recall).join(",") : "none", () => {
+    barChart($("cRecall"), RC ? RC.rows : null, css("--s-acc"), "Recall for each of the 18 models", "Appears after the next accuracy check. Per-model results are recorded from now on.");
+    table($("tRecall"), "Show data", ["Model", "Recall", "Passages", "Mistaken most for", "Share"], RC ? RC.rows.map((r) => [r.model, pct(r.recall, 1), r.n, r.confused_with, pct(r.confused_share, 0)]) : []);
+  });
   const list = (host, items, fmt) => { host.textContent = ""; if (!items.length) { const li = document.createElement("li"); li.textContent = "Nothing yet."; host.appendChild(li); return; }
     items.slice().reverse().forEach((e) => { const li = document.createElement("li"), t = document.createElement("time"), sp = document.createElement("span"); t.textContent = fmt(e.time); sp.textContent = e.text; li.append(t, sp); host.appendChild(li); }); };
   list($("evTrain"), s.train_events, (t) => t);
