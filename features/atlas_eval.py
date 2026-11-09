@@ -32,9 +32,10 @@ d = np.load(P / "blend_parts.npz", allow_pickle=True)
 ids, y = [str(i) for i in d["ids"]], d["y"]
 blend = log_softmax(0.5 * d["s4"] + 0.3 * d["s2mix"] + 0.1 * d["svm"] + 0.1 * d["lgb"])  # notebook v6
 fold = np.array([fold_of[i] for i in ids])
-H = pd.read_parquet(P / "atlas_host.parquet")
+DT = sys.argv[1] if len(sys.argv) > 1 else "fp16"
+H = pd.read_parquet(P / f"atlas_host_{DT}.parquet")
 H["id"] = H.id.astype(str)
-Pl = pd.read_parquet(P / "atlas_pool.parquet")
+Pl = pd.read_parquet(P / f"atlas_pool_{DT}.parquet")
 cols = [c for c in H.columns if c not in ("id", "model")]
 Hx = H.set_index("id").loc[ids, cols].to_numpy()
 hall_fold = H.id.map(fold_of).to_numpy()
@@ -66,7 +67,8 @@ for name, use_pool in (("host", False), ("host+pool", True)):
         X, Y = H.loc[tr, cols].to_numpy(), H.model[tr].map(cid).to_numpy()
         if use_pool:
             X, Y = np.vstack([X, Pl[cols].to_numpy()]), np.concatenate([Y, Pl.model.map(cid).to_numpy()])
-        mdl = lgbm.train(PRM, lgbm.Dataset(X, Y), num_boost_round=300)
+        cnt = np.bincount(Y, minlength=len(classes))  # class-balanced: the pool covers only 10 of the 18 classes
+        mdl = lgbm.train(PRM, lgbm.Dataset(X, Y, weight=(len(Y) / (len(classes) * cnt))[Y]), num_boost_round=300)
         oof[fold == k] = np.log(np.clip(mdl.predict(Hx[fold == k]), 1e-9, 1))
     res[name] = oof
     print(f"ATLAS LightGBM ({name}) alone: {bacc(y, oof.argmax(1)):.4f}", flush=True)

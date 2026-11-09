@@ -25,7 +25,9 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--per-class", type=int, default=300)
 ap.add_argument("--bs", type=int, default=4)
 ap.add_argument("--maxlen", type=int, default=320)
+ap.add_argument("--dtype", default="fp16", choices=["fp16", "bf16"])  # fp16 = what the Kaggle T4 notebook uses
 cli = ap.parse_args()
+DT = torch.float16 if cli.dtype == "fp16" else torch.bfloat16
 OUT = ROOT / "data/processed"
 MODEL = ROOT / "models/qwen3-4b-base"
 
@@ -47,8 +49,8 @@ if tok.pad_token is None:
     tok.pad_token = tok.eos_token
 lm = AutoModelForCausalLM.from_pretrained(
     MODEL, quantization_config=BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                                                  bnb_4bit_compute_dtype=torch.bfloat16),
-    dtype=torch.bfloat16, device_map={"": 0}).eval()
+                                                  bnb_4bit_compute_dtype=DT),
+    dtype=DT, device_map={"": 0}).eval()
 
 Q = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9)
 
@@ -73,10 +75,10 @@ def score(texts):
         ix = order[b:b + cli.bs]
         enc = tok([tok.bos_token + texts[i] if tok.bos_token else texts[i] for i in ix], return_tensors="pt",
                   padding=True, truncation=True, max_length=cli.maxlen).to(0)
-        hid = lm.model(**enc).last_hidden_state  # vocab logits one passage at a time (8 GB card)
+        hid = lm.model(**enc, use_cache=False).last_hidden_state  # vocab logits one passage at a time (8 GB card)
         tgt, m = enc.input_ids[:, 1:], enc.attention_mask[:, 1:].bool()
         for j, i in enumerate(ix):
-            lg = lm.lm_head(hid[j, :-1][m[j]]).float()
+            lg = lm.lm_head(hid[j, :-1][m[j]]).float()  # same dtype as the notebook, so rounding matches
             tj = tgt[j][m[j]]
             lse = torch.logsumexp(lg, -1)  # entropy = lse - sum(p * logit): two vocab-size tensors, not four
             a = (lg.gather(-1, tj[:, None])[:, 0] - lse).cpu().numpy()
@@ -99,5 +101,5 @@ for name, df in (("host", host), ("pool", pool)):
     F.insert(0, "model", df.model.to_numpy())
     if "id" in df:
         F.insert(0, "id", df.id.astype(str).to_numpy())
-    F.to_parquet(OUT / f"atlas_{name}.parquet")
+    F.to_parquet(OUT / f"atlas_{name}_{cli.dtype}.parquet")
     print(f"{name} done: {F.shape}", flush=True)

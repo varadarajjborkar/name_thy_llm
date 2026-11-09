@@ -20,7 +20,7 @@ Usage:
   .venv/Scripts/python.exe tools/governor.py              one pass (what the scheduled task runs)
   .venv/Scripts/python.exe tools/governor.py install      register the scheduled task (every 3 minutes)
   .venv/Scripts/python.exe tools/governor.py remove
-  .venv/Scripts/python.exe tools/governor.py job NAME LOG [DONE_REGEX]   register an ad-hoc job to watch
+  .venv/Scripts/python.exe tools/governor.py job NAME LOG DONE_REGEX     register an ad-hoc job to watch
   .venv/Scripts/python.exe tools/governor.py unjob NAME
 """
 import csv
@@ -46,8 +46,18 @@ KAGGLE = shutil.which("kaggle") or str(Path.home() / "AppData/Local/Programs/Pyt
 KERNELS = ["varadarajborkar/ntl-qwen-train", "varadarajborkar/ntl-research", "varadarajborkar/ntl-s2-main",
            "varadarajborkar/ntl-qwen-blend"]
 COMP = "name-that-llm"
-CRASH = re.compile(r"Traceback|out of memory|CUDA error|Killed|MemoryError|Segmentation fault")
+CRASH = re.compile(r"Traceback \(most recent call last\)|CUDA out of memory|CUDA error|^Killed\b|MemoryError|"
+                   r"Segmentation fault", re.M)
 NOWIN = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+LOCK = LOGS / "governor.lock"
+
+
+def wmi_start(cmdline):
+    """Start a process through WMI so it lives outside the caller's (Task Scheduler / terminal) job object."""
+    cmd = cmdline.replace("'", "''")
+    ps = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments "
+          f"@{{CommandLine='{cmd}'; CurrentDirectory='{ROOT}'}}; $r.ReturnValue")
+    return run(["powershell", "-NoProfile", "-Command", ps], 60)
 
 
 def load(p, default):
@@ -58,7 +68,7 @@ def load(p, default):
 
 
 def save(p, obj):
-    tmp = p.with_suffix(".tmp")
+    tmp = p.with_suffix(f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(obj, indent=1), encoding="utf-8")
     os.replace(tmp, p)
 
@@ -102,17 +112,20 @@ def check_training(st, al):
         return
     R = ROOT / "checkpoints" / name
     flags = {f for f in ("DONE_TRAINING", "PAUSE", "STOP", "HALTED") if (R / f).exists()}
+    tr = st.setdefault("training", {})
     if "HALTED" in flags:
         al.raise_(f"halted:{name}", "training", f"{name} HALTED after an error; see {R / 'supervisor.log'}")
         return
     al.clear(f"halted:{name}")
-    if flags:
+    if flags:  # finished, paused or stopped on purpose: nothing to watch, forget old state
+        tr.pop(name, None)
+        al.clear(f"dead:{name}")
+        al.clear(f"stale:{name}")
         return
     code, out = run([str(PY), str(ROOT / "finetune/ctl.py"), "--run", name, "status"], 60)
-    alive = "RUNNING" in out
+    alive = "supervisor RUNNING" in out
     log = R / "train.log"
     quiet = time.time() - log.stat().st_mtime if log.exists() else None
-    tr = st.setdefault("training", {})
     if alive:
         tr.pop(name, None)
         al.clear(f"dead:{name}", "training", f"{name} supervisor running again")
@@ -135,19 +148,32 @@ def check_training(st, al):
 
 def check_watchdog(al):
     code, out = run(["schtasks", "/query", "/tn", WATCHDOG_TASK, "/fo", "csv", "/v"], 30)
+    if code == -1:
+        al.raise_("watchdog-query", "watchdog", f"schtasks query failed: {out.strip()[-120:]}")
+        return
+    al.clear("watchdog-query")
     if code != 0:
         al.raise_("watchdog-missing", "watchdog", f"scheduled task {WATCHDOG_TASK} not found")
         return
     al.clear("watchdog-missing", "watchdog", "task present again")
+    last, t = "", None
     try:
-        row = next(csv.DictReader(io.StringIO(out)))
-        last = row.get("Last Run Time", "")
-        t = datetime.strptime(last, "%d-%m-%Y %H:%M:%S") if last and last[2] == "-" else None
+        last = next(csv.DictReader(io.StringIO(out))).get("Last Run Time", "")
+        for fmt in ("%d-%m-%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S", "%m/%d/%Y %I:%M:%S %p", "%Y-%m-%d %H:%M:%S"):
+            try:
+                t = datetime.strptime(last, fmt)
+                break
+            except ValueError:
+                pass
     except Exception:
-        t = None
-    if t and (datetime.now() - t).total_seconds() > 30 * 60:
+        pass
+    if t is None:
+        al.raise_("watchdog-parse", "watchdog", f"cannot read the task's last run time ({last!r})")
+        return
+    al.clear("watchdog-parse")
+    if (datetime.now() - t).total_seconds() > 30 * 60:
         al.raise_("watchdog-idle", "watchdog", f"{WATCHDOG_TASK} last ran {last}")
-    elif t:
+    else:
         al.clear("watchdog-idle", "watchdog", "running on schedule again")
 
 
@@ -160,28 +186,40 @@ def check_dashboard(st, al):
     except Exception:
         st["dash_fail"] = st.get("dash_fail", 0) + 1
     if st["dash_fail"] == 2:  # two passes in a row (about 6 minutes): restart once
-        subprocess.Popen([str(PYW), str(ROOT / "dashboard/server.py"), "--no-browser"], cwd=ROOT,
-                         creationflags=NOWIN | getattr(subprocess, "DETACHED_PROCESS", 0))
-        event("FIXED", "dashboard", "not answering for 2 checks: restarted on port 8765")
+        code, out = wmi_start(f'"{PYW}" "{ROOT / "dashboard/server.py"}" --no-browser')
+        event("FIXED", "dashboard", f"not answering for 2 checks: restarted on port 8765 (WMI result {out.strip()})")
     elif st["dash_fail"] >= 4:
         al.raise_("dashboard", "dashboard", "still down after a restart")
 
 
+def clear_job(al, name):
+    for k in (f"job:{name}", f"jobstale:{name}", f"jobmissing:{name}"):
+        al.clear(k)
+
+
 def check_jobs(st, al):
-    jobs = load(JOBS, {})
-    for name, j in list(jobs.items()):
+    finished = []
+    for name, j in load(JOBS, {}).items():
         log = Path(j["log"])
         if not log.is_absolute():
             log = ROOT / log
         if not log.exists():
+            if time.time() - j.get("registered", time.time()) > 10 * 60:
+                al.raise_(f"jobmissing:{name}", f"job {name}", f"log {log} still missing 10 min after registering")
             continue
-        try:
-            tail = log.read_text(encoding="utf-8", errors="replace")[-20000:]
+        al.clear(f"jobmissing:{name}")
+        try:  # only what the job wrote after it was registered (a reused log's old text does not count)
+            with open(log, "rb") as f:
+                size = f.seek(0, 2)
+                start = j.get("offset", 0) if size >= j.get("offset", 0) else 0
+                f.seek(max(start, size - 200_000))
+                tail = f.read().decode("utf-8", errors="replace")
         except Exception:
             continue
-        if j.get("done") and re.search(j["done"], tail):
+        if re.search(j["done"], tail):
             event("DONE", f"job {name}", f"finished ({log.name})")
-            jobs.pop(name)
+            finished.append(name)
+            clear_job(al, name)
             continue
         m = CRASH.search(tail)
         if m:
@@ -193,28 +231,40 @@ def check_jobs(st, al):
             al.raise_(f"jobstale:{name}", f"job {name}", f"log silent {quiet / 60:.0f} min ({log.name})")
         else:
             al.clear(f"jobstale:{name}")
-    save(JOBS, jobs)
+    if finished:  # re-read so a job registered during this pass is kept
+        jobs = load(JOBS, {})
+        for n in finished:
+            jobs.pop(n, None)
+        save(JOBS, jobs)
 
 
 def check_kaggle(st, al):
-    ks = st.setdefault("kernels", {})
+    ks, fails = st.setdefault("kernels", {}), st.setdefault("kaggle_fail", {})
+    if not isinstance(fails, dict):
+        fails = st["kaggle_fail"] = {}
+    bad = ("ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED")
     for k in KERNELS:
+        short = k.split("/")[1]
         code, out = run([KAGGLE, "kernels", "status", k], 60)
         m = re.search(r"KernelWorkerStatus\.(\w+)", out)
-        if not m:
-            st["kaggle_fail"] = st.get("kaggle_fail", 0) + 1
-            if st["kaggle_fail"] >= 5:
-                al.raise_("kaggle-api", "kaggle", f"status calls failing: {out.strip()[-160:]}")
-            return
-        st["kaggle_fail"] = 0
-        al.clear("kaggle-api", "kaggle", "API answering again")
+        if not m:  # count failures per kernel, keep checking the others
+            fails[k] = fails.get(k, 0) + 1
+            if fails[k] >= 5:
+                al.raise_(f"kaggle-api:{short}", "kaggle", f"{short}: status calls failing: {out.strip()[-160:]}")
+            continue
+        fails[k] = 0
+        al.clear(f"kaggle-api:{short}", "kaggle", f"{short}: API answering again")
         s, prev = m.group(1), ks.get(k)
         if s != prev:
             ks[k] = s
-            if prev is not None:
-                lvl = "ALERT" if s in ("ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED") else (
-                    "DONE" if s == "COMPLETE" else "INFO")
-                event(lvl, "kaggle", f"{k.split('/')[1]}: {prev} -> {s}")
+            if prev is None and s in bad:
+                al.raise_(f"kernel:{short}", "kaggle", f"{short} is {s} (first seen)")
+            elif prev is not None:
+                lvl = "ALERT" if s in bad else ("DONE" if s == "COMPLETE" else "INFO")
+                event(lvl, "kaggle", f"{short}: {prev} -> {s}")
+            if s not in bad:
+                al.clear(f"kernel:{short}")
+    # An ERROR -> ERROR re-push is not visible here; after pushing a kernel the main agent re-checks it itself.
 
 
 def check_submissions(st, al):
@@ -227,7 +277,8 @@ def check_submissions(st, al):
     if not rows:
         return
     subs = st.setdefault("subs", {})
-    first_pass = not subs
+    first_pass = not st.get("subs_init")  # only the very first pass is silent (baseline), not a lost state file
+    st["subs_init"] = True
     for r in rows[:10]:
         ref, s, score = r["ref"], r["status"].split(".")[-1], r.get("publicScore", "")
         prev = subs.get(ref, {}).get("status")
@@ -261,6 +312,21 @@ def check_machine(al):
 
 
 def one_pass():
+    try:  # one pass at a time (Task Scheduler and a manual loop may overlap); a lock older than 10 min is stale
+        if LOCK.exists() and time.time() - LOCK.stat().st_mtime > 600:
+            LOCK.unlink()
+        fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+    except FileExistsError:
+        return
+    try:
+        _pass()
+    finally:
+        LOCK.unlink(missing_ok=True)
+
+
+def _pass():
     st = load(STATE, {})
     al = Alerts(st)
     for name, fn in (("training", lambda: check_training(st, al)), ("watchdog", lambda: check_watchdog(al)),
@@ -297,14 +363,24 @@ if __name__ == "__main__":
         install()
     elif a[0] == "remove":
         print(run(["schtasks", "/delete", "/tn", TASK, "/f"], 30)[1].strip())
-    elif a[0] == "job" and len(a) >= 3:
+    elif a[0] == "job" and len(a) >= 4:  # NAME LOG DONE_REGEX (required: how else would it know the job ended)
+        log = Path(a[2]) if Path(a[2]).is_absolute() else ROOT / a[2]
         jobs = load(JOBS, {})
-        jobs[a[1]] = {"log": a[2], "done": a[3] if len(a) > 3 else None, "stale_min": 30}
+        jobs[a[1]] = {"log": a[2], "done": a[3], "stale_min": 30, "registered": time.time(),
+                      "offset": log.stat().st_size if log.exists() else 0}
         save(JOBS, jobs)
-        print(f"watching job {a[1]}: {a[2]}")
+        st = load(STATE, {})
+        for k in (f"job:{a[1]}", f"jobstale:{a[1]}", f"jobmissing:{a[1]}"):
+            st.get("alerts", {}).pop(k, None)
+        save(STATE, st)
+        print(f"watching job {a[1]}: {a[2]} (done when /{a[3]}/ appears)")
     elif a[0] == "unjob" and len(a) == 2:
         jobs = load(JOBS, {})
         jobs.pop(a[1], None)
         save(JOBS, jobs)
+        st = load(STATE, {})
+        for k in (f"job:{a[1]}", f"jobstale:{a[1]}", f"jobmissing:{a[1]}"):
+            st.get("alerts", {}).pop(k, None)
+        save(STATE, st)
     else:
         print(__doc__)
