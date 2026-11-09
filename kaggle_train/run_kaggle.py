@@ -39,7 +39,8 @@ JOBS = {
     ],
 }
 COMMON = ["--arch", "ms", "--layers", "24", "--lr", "1e-4", "--head-lr", "1e-3", "--warmup", "0.1",
-          "--lockbox-fold", "4", "--eval-n", "900", "--ckpt-every", "100"]
+          "--lockbox-fold", "4", "--eval-n", "900", "--ckpt-every", "100",
+          "--max-hours", "10.75"]  # Kaggle stops a session at 12 h: save a resumable checkpoint well before
 
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "bitsandbytes"], check=True)
 W = "/kaggle/working/proj"
@@ -95,7 +96,19 @@ while any(p.poll() is None for _, p in procs):
 
 for run, p in procs:
     print(f"{run} exit code {p.returncode}", flush=True)
-    for d in ("ckpt_latest", "ckpt_prev", "ckpt_tmp"):  # optimizer state is not needed afterwards; keep outputs small
-        shutil.rmtree(f"{W}/checkpoints/{run}/{d}", ignore_errors=True)
+    if p.returncode == 0:  # finished: optimizer state is not needed afterwards; keep outputs small
+        for d in ("ckpt_latest", "ckpt_prev", "ckpt_tmp"):
+            shutil.rmtree(f"{W}/checkpoints/{run}/{d}", ignore_errors=True)
+    else:  # paused at the time limit, aborted or crashed: keep the checkpoints so the run can be resumed
+        print(f"{run}: kept ckpt_latest/ckpt_prev for a resume", flush=True)
     tail = open(f"{W}/checkpoints/{run}/console.log").read().splitlines()[-15:]
     print("\n".join(tail), flush=True)
+
+# Remove the input links (base models ~8 GB / ~16 GB, data) so the saved output holds only our checkpoints:
+# a symlinked model can be copied into /kaggle/working's output and break the 20 GB output limit.
+for p_ in glob.glob(f"{W}/models/*") + glob.glob(f"{W}/data/**/*", recursive=True):
+    if os.path.islink(p_):
+        os.unlink(p_)
+for d in ("data/processed", "data", "models"):  # the generated pool_host parquets are inputs too
+    shutil.rmtree(f"{W}/{d}", ignore_errors=True)
+print("input links and data removed from the output folder", flush=True)

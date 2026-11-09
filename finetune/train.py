@@ -43,6 +43,7 @@ from transformers import (AutoConfig, AutoModel, AutoModelForSequenceClassificat
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = ROOT / "models/qwen3-4b-base"
 EXIT_PAUSED = 10
+T_PROCESS = time.time()  # for --max-hours (a Kaggle session counts from its start, not from the first step)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--run", default="run1")
@@ -71,6 +72,8 @@ ap.add_argument("--cv-fold", type=int, default=-1,
                      "-2: train on all of --val (no validation)")
 ap.add_argument("--cv-folds", type=int, default=5)
 ap.add_argument("--label-smoothing", type=float, default=0.0)
+ap.add_argument("--max-hours", type=float, default=0.0,
+                help="save a resumable checkpoint and exit (code 10) after this many hours; 0 = no limit")
 ap.add_argument("--compute-dtype", choices=["bf16", "fp16"], default="bf16",
                 help="fp16 for GPUs without native bf16 (Kaggle T4/P100); uses loss scaling")
 ap.add_argument("--lockbox-fold", type=int, default=-1,
@@ -368,7 +371,7 @@ model.train()
 opt.zero_grad(set_to_none=True)
 micro_per_epoch = steps_per_epoch * a.accum
 plans = {}
-nonfinite, t_start, step0 = 0, time.time(), step  # ema comes from the checkpoint, so a resume does not reset it
+recent_bad, t_start, step0 = [], time.time(), step  # ema comes from the checkpoint, so a resume does not reset it
 P(f"start at step {step}/{total_steps}")
 
 while step < total_steps:
@@ -379,27 +382,38 @@ while step < total_steps:
     first_micro = (step % steps_per_epoch) * a.accum
     for g in opt.param_groups:
         g["lr"] = g["base"] * lr_mult(step)
-    tot = 0.0
+    tot, n_back = 0.0, 0
     for j in range(a.accum):
         idx = plan[first_micro + j]
         x, m = collate(tr_ids, idx)
         y = torch.tensor(tr_y[idx], device="cuda")
         loss = torch.nn.functional.cross_entropy(logits_of(x, m).float(), y, label_smoothing=a.label_smoothing)
-        if not torch.isfinite(loss):
-            nonfinite += 1
-            if nonfinite > 20:
-                P("too many non-finite losses, aborting")
+        bad = not torch.isfinite(loss)
+        recent_bad = (recent_bad + [bad])[-400:]  # abort only on a sustained overflow rate, not a total count
+        if bad:
+            del loss  # free this micro-batch's graph before the next one (peak memory)
+            if len(recent_bad) >= 100 and sum(recent_bad) > 0.25 * len(recent_bad):
+                if all(torch.isfinite(p_).all() for _, p_ in named):  # never overwrite good checkpoints with NaN
+                    save_ckpt(step, best)
+                    P(f"over 25% of the last {len(recent_bad)} micro-batches non-finite: state saved, aborting")
+                else:
+                    P(f"over 25% of the last {len(recent_bad)} micro-batches non-finite and weights not finite: "
+                      "aborting WITHOUT saving (the existing checkpoints are kept)")
                 sys.exit(3)
             continue
         scaler.scale(loss / a.accum).backward()
         tot += loss.item() / a.accum
-    scaler.unscale_(opt)  # no-ops when bf16; with fp16 a step with inf/NaN gradients is skipped, not applied
-    torch.nn.utils.clip_grad_norm_([p for _, p in named], 1.0)
-    scaler.step(opt)
-    scaler.update()
+        n_back += 1
+    if n_back:  # with no backward pass at all the scaler has nothing to check, and its step() would raise
+        scaler.unscale_(opt)  # no-ops when bf16; with fp16 a step with inf/NaN gradients is skipped, not applied
+        torch.nn.utils.clip_grad_norm_([p for _, p in named], 1.0)
+        scaler.step(opt)
+        scaler.update()
     opt.zero_grad(set_to_none=True)
     step += 1
-    ema = tot if ema is None else 0.98 * ema + 0.02 * tot
+    if n_back:  # mean over the micro-batches that ran; an all-skipped step does not move the loss average
+        tot *= a.accum / n_back
+        ema = tot if ema is None else 0.98 * ema + 0.02 * tot
 
     if step % 20 == 0:
         done = step - step0
@@ -427,7 +441,10 @@ while step < total_steps:
             torch.save({n: p.detach().cpu() for n, p in named}, RUN / "best_tmp.pt")
             os.replace(RUN / "best_tmp.pt", RUN / "best_trainable.pt")
 
-    paused = stop["flag"] or (RUN / "PAUSE").exists()
+    out_of_time = a.max_hours and time.time() - T_PROCESS > a.max_hours * 3600
+    paused = stop["flag"] or (RUN / "PAUSE").exists() or out_of_time
+    if out_of_time and step < total_steps:
+        P(f"time limit of {a.max_hours} h reached at step {step}: saving a resumable checkpoint")
     if step % a.ckpt_every == 0 or paused or step == total_steps:
         save_ckpt(step, best)
         P(f"checkpoint saved at step {step}")

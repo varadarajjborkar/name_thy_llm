@@ -240,3 +240,34 @@ Per-group logistic on our 316 style features (pool 26k sibling rows + host outsi
 1. Partial Sinkhorn: alpha 0/0.25/0.45/0.65/0.85/1 on balanced OOF rows 0.589/0.591/0.594/0.595/0.592/0.591; on unbalanced resamples 0.583/0.582/0.581/0.580/0.574/0.571. KEEP alpha 0.45 (near-best when balanced, cheap hedge when not).
 2. OOF sibling-style residual, rebuilt as in the Who-am-I v40A code (family prefix experts on stylometry, reliability from inner OOF, disputed-row gate, max_alpha 0.08): 0.5903 argmax / 0.5917 with partial sinkhorn vs blend 0.5889 / 0.5940. Style experts reach only 0.39-0.42 within families. DROP.
 3. Four-view n-gram SVM (word, char, shape, topic-masked): host-only alone 0.361, host + pool (2k/model, w 0.3) alone 0.452 vs old SVM 0.371. In the blend: best of a 12-point weight grid 0.5972 vs 0.5940 partial-sinkhorn (+0.3, selection noise); at the old weight 0.5880. DROP: Qwen already carries this information.
+
+### LB: prompt centering (main agent, 2026-11-09 18:00)
+Notebook v5 = three stage-2 fits + SVM + LGBM, prompt centering w 0.5, full sinkhorn: **LB 0.572** (previous 0.555). Between the OOF simulations (partial groups +0.9, full groups +4.9): the hidden test has real multi-model prompt groups, just not complete 18-model sets. Centering is now a core component; the shared-prompt Gaussian becomes more promising. Partial sinkhorn 0.45 added to the notebook for the next submission.
+
+### Notebook component 4: shared-prompt Gaussian (main agent, 2026-11-09 18:40)
+Two-way model x = class mean + prompt shift + noise, S and T diagonalised together, shift estimated per found cluster with shrinkage lam/(1+n lam), 5 EM rounds (features/prompt_gauss.py). Out of fold, with partial sinkhorn 0.45; baseline = blend - 0.5 x cluster mean:
+- full groups: baseline 0.6306; + 0.2 x Gaussian on blend log-probs 0.6338; + 0.2 x Gaussian on frozen run3 PCA-128 0.6366 (alone 0.597 / 0.515).
+- partial groups (2-10 per prompt): baseline 0.6016; + Gaussian 0.6012 / 0.6000.
+DROP: +0.3 to +0.6 only when groups are complete, zero on partial groups; plain centering already captures the shared prompt shift.
+
+### run4 stage 2 and notebook v6 (main agent, 2026-11-09 20:20)
+run4 (stage 1 continued on 92k pool rows) final 0.568 vs run2/run3/k_host3 0.521/0.527/0.530. Stage 2 from run4 (s4ff0-3): 0.617/0.552/0.626/0.594, family raw 0.597 vs s2/s3/h3 0.566/0.573/0.572. With centering w0.5 + partial sinkhorn 0.45 over folds 0-3: v5 blend 0.6306; s4 weight 0.2/0.4/0.5/0.6/0.8 (old families share 0.8 - w) 0.6375/0.6417/0.6394/0.6403/0.6412: a flat plateau from 0.4 to 0.8, about +1 pt. Fold 0 alone had suggested +2.4 (0.639 -> 0.663); the 4-fold number is the one to trust. v6 submitted at 0.5 / 0.1 x 3 / SVM 0.1 / LGBM 0.1, partial sinkhorn 0.45.
+
+### Forum read, critically (main agent, 2026-11-09 21:30)
+Read 16 threads via Kaggle's internal API (the page itself is JavaScript-only). Facts (host or competition API):
+- Public LB = 40% of the hidden test (~1,600 rows), private = 60%. The mix of models differs between public and private (Overview), so class balance is not uniform: keep Sinkhorn partial, not full.
+- Host: using relationships between test passages (clustering, pseudo-labels) is allowed. Self-generated data within reasonable cost (well under the $5k prize) is allowed and need not be public; the Benchmarks proxy is not meant for training data. Public Kaggle datasets and public LoRA weights are fine.
+- Test prompts do not all have 18 answers (Overview), consistent with our 0.367 group-assignment probe.
+Participant claims worth testing (not accepted at face value):
+- Open Pool v14 (223,840 rows) drops 284 mislabelled rows and adds gen_reasoning: only kimi-k3 rows with reasoning "high" look like the real kimi-k3 (25% vs 8-11% recognised by a train-only TF-IDF yardstick; within-source control supports it). Check our kimi-k3 recall and pool version before the next stage 1.
+- Public notebooks score 0.65-0.66 with Qwen3-14B / Qwen3-8B / Llama-8B two-stage LoRA24 + a prompt-centred "twin" head trained on batches of same-prompt triplets (removal costs 0.006-0.017 LB), a Gaussian head, ATLAS (worth -0.009 on one base, +0.001 on another), n-gram SVC, Sinkhorn 0.30-0.45 better than 0.60 (+0.003). Training-time prompt centring is the idea we have not tried; our post-hoc centring gave +1.7.
+- Stage 2 there uses lr 5e-5 / head 5e-4 (ours 1e-4 / 1e-3) and class-weighted stage 1.
+- Member diversity: a member retrained on the same pool with higher OOF scored lower on LB (0.651 -> 0.647); a different data mix adds more than OOF suggests.
+- fp16 on T4 with a growing LoRA can overflow, skipped batches cost 0.10 OOF in one report: check our Kaggle 8B run's skipped-batch count. Kaggle TPU v5e-8 reported 14x faster than 2xT4 for Qwen3-8B LoRA in bf16, but queue waits up to ~23 h.
+- Base-LM likelihood features (GLM-4-9B, Qwen3-8B) reported -0.002 in one grouped-CV stack: low prior for ATLAS.
+- Noise of a difference of two public scores: sd ~ sqrt(f / n_public), f = share of rows where exactly one is right; for f 10-20% and 1,600 rows, 0.008-0.011.
+
+### Notebook component 5: ATLAS-style base-LM likelihood view (main agent, 2026-11-09 22:15)
+Qwen3-4B base (4-bit, bf16 compute) per-token log-prob / entropy / top-1 stats -> 37 features (features/atlas.py), LightGBM on host (+2,950 pool rows) out of fold (features/atlas_eval.py). Alone 0.118 (chance 0.056): weak, but independent. Added to the v6 blend before centering + partial sinkhorn (baseline 0.6394): ungated w 0.1 0.6486, w 0.2 0.6519; gates add nothing. Per fold (w 0.1 / 0.2): 0.650 -> 0.652 / 0.661, 0.593 -> 0.607 / 0.609, 0.656 -> 0.667 / 0.672, 0.659 -> 0.669 / 0.665: up on every fold. KEEP, ungated, w 0.15 (middle of the plateau, not the grid best). To ship: compute the features in the notebook with the same dtype as on Kaggle (fp16 on T4; recompute local features in fp16 to match), LightGBM trained on all host + pool rows.
+Shared-prompt Gaussian re-run after the error-check fixes, against the v6 blend: partial groups 0.6180 -> 0.6185 at best. Still DROP.
+ATLAS follow-up (22:35): fp16 features (Kaggle T4 dtype) have 0 NaN, correlate 0.999 with bf16. Seed-averaged (5 LightGBM seeds, class-balanced): host+pool at w 0.15 gains +1.08 (fp16, range +0.97 to +1.20) / +1.15 (bf16); host-only only +0.1 / +0.4. The single-seed fp16 eval showed +0.3 because it picked host-only by its stand-alone score. Shipping: fp16, host+pool, balanced, 5-seed bag, w 0.15, ungated.

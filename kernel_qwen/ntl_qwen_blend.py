@@ -26,10 +26,14 @@ ROOT = os.environ.get("NTL_ROOT", "/kaggle/input")
 # Now (research/fit_blend_multi.py, folds 0-3 OOF, 2,160 rows): three stage-2 full fits from different stage-1
 # starts (run2, run3 = run2 continued on unseen pool rows, k_host3 = pool + hostlike x3), equal weights 0.8 in
 # total + SVM 0.1 + LGBM 0.1 -> raw 0.589, sinkhorn 0.591. Stage 1 adds nothing on top.
-WEIGHTS = {"qwen:s2all": (0.8 / 3, 1.0), "qwen:s3all": (0.8 / 3, 1.0), "qwen:h3s2all": (0.8 / 3, 1.0),
-           "svm": (0.1, 3.0), "lgbm": (0.1, 1.0)}
+# v6: + s4all (stage 2 from run4, stage 1 on 92k pool rows). Fold 0 with centering + partial sinkhorn: old blend
+# 0.639, s4 weight 0.5 (old families 0.1 each) 0.663; s4 alone on fold 0 0.617 vs 0.567 / 0.567 / 0.559.
+WEIGHTS = {"qwen:s4all": (0.5, 1.0), "qwen:s2all": (0.1, 1.0), "qwen:s3all": (0.1, 1.0), "qwen:h3s2all": (0.1, 1.0),
+           "svm": (0.1, 3.0), "lgbm": (0.1, 1.0),
+           "atlas": (0.15, 1.0)}  # v7: on top of the v6 weights (they sum to 1), as evaluated out of fold
 SINKHORN = True
-PARITY = False  # True only for pipeline checks; never in a submission
+SINK_ALPHA = 0.45  # LB history: full sinkhorn + centering w0.5 = 0.572 (v5)
+PARITY = os.environ.get("NTL_PARITY", "0") == "1"  # pipeline check only (env switch for local tests); never in a submission
 t_start = time.time()
 
 
@@ -40,8 +44,49 @@ def find(pattern, must=""):
     return hits[0]
 
 
+OUT_DIR = "/kaggle/working" if os.path.isdir("/kaggle/working") else os.environ.get("NTL_OUT", ".")
+SUMMARY = {"started": time.strftime("%Y-%m-%d %H:%M:%S"), "stages": [], "checks": {}}
+
+
+def gpu_mem():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return f"gpu {torch.cuda.memory_allocated() / 2**30:.1f}/{torch.cuda.max_memory_allocated() / 2**30:.1f} GB"
+    except Exception:
+        pass
+    return ""
+
+
 def P(*x):
-    print(f"[{time.time() - t_start:6.0f}s]", *x, flush=True)
+    print(f"[{time.time() - t_start:6.0f}s]", *x, gpu_mem(), flush=True)
+
+
+def stage(name, **info):
+    """Log a finished stage and rewrite run_summary.json, so even a crashed run leaves a trail in its output."""
+    SUMMARY["stages"].append({"stage": name, "t": round(time.time() - t_start, 1), **info})
+    P(f"STAGE {name}", " ".join(f"{k}={v}" for k, v in info.items()))
+    try:
+        with open(f"{OUT_DIR}/run_summary.json", "w") as f:
+            json.dump(SUMMARY, f, indent=1, default=str)
+    except Exception as e:
+        print("summary write failed:", e, flush=True)
+
+
+def _has(md, k):
+    try:
+        md.version(k)
+        return True
+    except Exception:
+        return False
+
+
+def check_member(k, z):
+    """Shape, finiteness and how spread the member's votes are (a collapsed member votes one class)."""
+    assert z.shape == (len(test), len(classes)), f"{k}: shape {z.shape}"
+    assert np.isfinite(z).all(), f"{k}: non-finite scores"
+    top = pd.Series(z.argmax(1)).value_counts()
+    SUMMARY["checks"][k] = {"top_class_share": round(float(top.iloc[0] / len(z)), 3), "classes_voted": int(len(top))}
 
 
 def log_softmax(z):
@@ -72,9 +117,45 @@ if PARITY:  # pipeline check: score 900 train rows outside the lockbox fold with
     rest = train.drop(index=train.index[lock])
     test = rest.groupby("model").sample(n=50, random_state=0).reset_index(drop=True)
     test_text = test.text.fillna("").astype(str).values
-    WEIGHTS = {k: v for k, v in WEIGHTS.items() if k != "svm"}  # the SVM is fit on these very rows
+    WEIGHTS = {k: v for k, v in WEIGHTS.items() if k not in ("svm", "atlas")}  # both are fit on these very rows
 P("train", train.shape, "test", test.shape)
+try:
+    import importlib.metadata as md
+    SUMMARY["versions"] = {k: md.version(k) for k in ("torch", "transformers", "peft", "bitsandbytes", "lightgbm",
+                                                        "scikit-learn") if _has(md, k)}
+except Exception as e:
+    SUMMARY["versions"] = str(e)
+stage("data", train=len(train), test=len(test), parity=PARITY)
 members = {}
+
+# ---------------------------------------------------------------- base model, staged to local disk
+# Kaggle staff (competition forum 750924): /kaggle/input reads can crawl on some GPU sessions (mmap-style model
+# loading), which turned 15-minute scorings into hours; a plain sequential copy to /tmp runs at normal speed.
+# The base model is loaded five times (four classifiers + ATLAS), so it is copied once and read from local disk.
+def stage_model(src):
+    import shutil
+    import tempfile
+    on_kaggle = src.startswith("/kaggle/") or os.environ.get("NTL_STAGE") == "1"
+    dst = os.path.join(tempfile.gettempdir(), "qwen3-4b-base")
+    if not on_kaggle:
+        return src
+    try:
+        need = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(src) for f in fs)
+        if shutil.disk_usage(tempfile.gettempdir()).free < need + 4 * 2**30:
+            stage("model staging skipped (disk)", need_gb=round(need / 2**30, 1))
+            return src
+        t0 = time.time()
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+        stage("model staged to local disk", gb=round(need / 2**30, 1), seconds=round(time.time() - t0, 1))
+        return dst
+    except Exception as e:  # any copy problem: read from the input mount as before
+        stage("model staging failed, reading from input", error=f"{type(e).__name__}: {e}")
+        return src
+
+
+BASE_DIR = None
+if any(k.startswith("qwen:") for k in WEIGHTS) or "atlas" in WEIGHTS or PARITY:
+    BASE_DIR = stage_model(os.path.dirname(find("config.json", "4b-base")))
 
 # ---------------------------------------------------------------- Qwen members
 qwen_names = [k.split(":", 1)[1] for k in WEIGHTS if k.startswith("qwen:")]
@@ -88,7 +169,7 @@ if qwen_names:
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
     from transformers import AutoConfig, AutoModel, AutoTokenizer, BitsAndBytesConfig
 
-    MODEL = os.path.dirname(find("config.json", "4b-base"))
+    MODEL = BASE_DIR
     tok = AutoTokenizer.from_pretrained(MODEL)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
@@ -145,13 +226,16 @@ if qwen_names:
                 m[r, :len(ids[i])] = 1
             out[b] = model(x.cuda(), m.cuda()).float().cpu().numpy()
         del model, base
+        import gc
+        gc.collect()  # peft / bitsandbytes modules can hold reference cycles; free before the next member loads
         torch.cuda.empty_cache()
         assert np.isfinite(out).all(), "non-finite Qwen logits"
         return out
 
     for name in qwen_names:
         members[f"qwen:{name}"] = qwen_scores(find(f"{name}__weights.pt")[: -len("__weights.pt")])
-        P(f"qwen {name} done")
+        check_member(f"qwen:{name}", members[f"qwen:{name}"])
+        stage(f"qwen {name}", rows=len(test))
 
 # ---------------------------------------------------------------- TF-IDF SVM (fit here on train.csv)
 if "svm" in WEIGHTS:
@@ -188,7 +272,8 @@ if "svm" in WEIGHTS:
     svm = LinearSVC(C=1.0, max_iter=2000).fit(featurize(train_text, fit=True), train.model.values)
     assert list(svm.classes_) == classes
     members["svm"] = svm.decision_function(featurize(test_text))
-    P("svm done")
+    check_member("svm", members["svm"])
+    stage("svm")
 
 # ---------------------------------------------------------------- LightGBM on style features
 if "lgbm" in WEIGHTS:
@@ -200,40 +285,114 @@ if "lgbm" in WEIGHTS:
     assert booster.num_feature() == len(NAMES)
     Xs = pd.DataFrame(np.asarray([extract(t) for t in test_text], dtype=np.float32), columns=NAMES)
     members["lgbm"] = np.log(np.clip(booster.predict(Xs, num_iteration=booster.best_iteration or None), 1e-9, 1))
-    P("lightgbm done")
+    check_member("lgbm", members["lgbm"])
+    stage("lightgbm")
+
+# ---------------------------------------------------------------- ATLAS: how each passage looks to the plain base LM
+# Per-token log-prob / entropy / top-1 statistics under Qwen3-4B base (4-bit, fp16), then 5 class-balanced LightGBM
+# seeds trained on all train.csv rows + 2,950 pool rows (features/atlas_fit.py). OOF folds 0-3, seed-averaged:
+# + 0.15 x ATLAS on the v6 blend = +1.08 (every fold up). The feature code is the same module used for training.
+ATLAS_PROBE = PARITY  # parity: compute and save ATLAS features (in-sample there, so they stay out of the blend)
+if "atlas" in WEIGHTS or ATLAS_PROBE:
+    try:  # never lose a submission to this member: on any failure the blend falls back to exactly v6
+        import lightgbm as lgb
+        import torch
+        sys.path.insert(0, os.path.dirname(find("atlas_feats.py")))
+        from atlas_feats import load_lm, score  # noqa: E402
+
+        meta = json.load(open(find("atlas_meta.json")))
+        assert meta["classes"] == classes, "ATLAS class order differs"
+        tok_a, lm_a = load_lm(BASE_DIR, torch.float16)
+        Fa = score(list(test_text), tok_a, lm_a, 4, meta["maxlen"], log=P)
+        del lm_a
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        Xa = Fa[meta["cols"]].to_numpy()
+        bad = ~np.isfinite(Xa).all(1)
+        if len(Xa) >= 100 and "mean" in meta:  # drift guard: features unlike the training ones -> leave ATLAS out
+            z = np.abs((np.nanmean(np.where(np.isfinite(Xa), Xa, np.nan), 0) - np.array(meta["mean"]))
+                       / np.array(meta["sd"]))
+            SUMMARY["atlas_drift"] = {"mean_abs_z": round(float(z.mean()), 3), "max_abs_z": round(float(z.max()), 3)}
+            if z.mean() > 0.6 or z.max() > 1.2:
+                raise RuntimeError(f"ATLAS features drifted from training (mean |z| {z.mean():.2f}, max {z.max():.2f})")
+        pa = np.mean([lgb.Booster(model_file=find(f"atlas_lgb_s{s}.txt")).predict(np.nan_to_num(Xa))
+                      for s in range(meta["seeds"])], 0)
+        pa[bad] = 1.0 / len(classes)  # a row with non-finite features gets a flat (no-opinion) ATLAS vote
+        members["atlas"] = np.log(np.clip(pa, 1e-9, 1))
+        if ATLAS_PROBE:
+            Fa.assign(id=test.id.astype(str).values).to_parquet(f"{OUT_DIR}/atlas_parity_features.parquet")
+        check_member("atlas", members["atlas"])
+        stage("atlas", nonfinite_rows=int(bad.sum()), in_blend="atlas" in WEIGHTS)
+    except Exception as e:
+        WEIGHTS.pop("atlas", None)
+        members.pop("atlas", None)
+        SUMMARY["atlas_error"] = f"{type(e).__name__}: {e}"
+        stage("atlas FAILED (blend falls back to v6)", error=f"{type(e).__name__}: {e}")
 
 # ---------------------------------------------------------------- blend + write
+missing = [k for k in WEIGHTS if k not in members]
+assert not missing, f"weighted members missing: {missing}"
 blend = sum(w * log_softmax(T * members[k]) for k, (w, T) in WEIGHTS.items())
+SUMMARY["weights"] = {k: v[0] for k, v in WEIGHTS.items()}
 # Prompt centering: subtract CENTER_W x the average log-probabilities of the passage's prompt cluster (topic cancels,
 # style remains), then Sinkhorn. OOF folds 0-3: full prompt groups 0.594 -> 0.643, random partial groups
 # 0.586 -> 0.594 (features/centering.py and its follow-up check). Clusters of one passage are left untouched.
 CENTER_W = 0.5
-if CENTER_W and len(test) >= 10 * len(classes):
+
+
+def prompt_centering(z):
+    """Cluster test passages by topic (TF-IDF + SVD + average-link cosine) and subtract CENTER_W x each cluster's mean
+    log-probabilities. Rows whose TF-IDF vector is empty (only stop words or very common words) stay in their own
+    cluster and are left untouched."""
     from sklearn.cluster import AgglomerativeClustering
     from sklearn.decomposition import TruncatedSVD
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.preprocessing import normalize
     Xg = TfidfVectorizer(stop_words="english", sublinear_tf=True, min_df=2, max_df=0.05).fit_transform(test_text)
-    Zg = normalize(TruncatedSVD(min(256, Xg.shape[1] - 1, Xg.shape[0] - 1), random_state=0).fit_transform(Xg))
-    groups = AgglomerativeClustering(n_clusters=max(1, round(len(test) / len(classes))), metric="cosine",
-                                     linkage="average").fit_predict(Zg)
-    lb = log_softmax(blend)
+    ok = np.asarray(Xg.getnnz(axis=1) > 0)  # cosine affinity is undefined for all-zero rows
+    groups = np.arange(len(test)) + len(test)  # unclustered rows: singleton labels that never collide
+    if ok.sum() >= 2 * len(classes):
+        Zg = normalize(TruncatedSVD(min(256, Xg.shape[1] - 1, int(ok.sum()) - 1), random_state=0)
+                       .fit_transform(Xg[ok]))
+        groups[ok] = AgglomerativeClustering(n_clusters=max(1, round(ok.sum() / len(classes))), metric="cosine",
+                                             linkage="average").fit_predict(Zg)
+    lb = log_softmax(z)
+    out = z.copy()
     for g in np.unique(groups):
         m = groups == g
         if m.sum() >= 2:
-            blend[m] = lb[m] - CENTER_W * lb[m].mean(0)
-    P("prompt centering:", len(set(groups)), "clusters, sizes", pd.Series(groups).value_counts().describe().round(1).to_dict())
+            out[m] = lb[m] - CENTER_W * lb[m].mean(0)
+    sizes = pd.Series(groups).value_counts()
+    stage("prompt centering", clusters=len(sizes), multi_clusters=int((sizes >= 2).sum()), largest=int(sizes.max()),
+          empty_rows=int((~np.asarray(Xg.getnnz(axis=1) > 0)).sum()))
+    return out
+
+
+if CENTER_W and len(test) >= 10 * len(classes):
+    try:  # never lose the run here: on any clustering problem the blend is used uncentred
+        blend = prompt_centering(blend)
+    except Exception as e:
+        SUMMARY["centering_error"] = f"{type(e).__name__}: {e}"
+        stage("prompt centering FAILED (blend used uncentred)", error=f"{type(e).__name__}: {e}")
 if PARITY:
     from sklearn.metrics import balanced_accuracy_score as bas
     y = test.model.values
     for k, z in list(members.items()) + [("blend", blend)]:
-        print(f"PARITY {k}: raw {bas(y, np.array(classes)[z.argmax(1)]):.4f} "
-              f"balanced {bas(y, np.array(classes)[sinkhorn(log_softmax(z)).argmax(1)]):.4f}", flush=True)
+        r, b = bas(y, np.array(classes)[z.argmax(1)]), bas(y, np.array(classes)[sinkhorn(log_softmax(z)).argmax(1)])
+        SUMMARY.setdefault("parity", {})[k] = {"raw": round(r, 4), "balanced": round(b, 4)}
+        print(f"PARITY {k}{' (in-sample, not in blend)' if k == 'atlas' else ''}: raw {r:.4f} balanced {b:.4f}",
+              flush=True)
 if SINKHORN and len(test) >= 10 * len(classes):  # only meaningful on a reasonably large, balanced test set
-    blend = sinkhorn(blend)
+    # partial: move SINK_ALPHA of the way towards equal shares (OOF: 0.45 is near-best when the test is balanced
+    # and costs only 0.2 when it is not; full balancing cost 1.2 on unbalanced resamples). research/partial_sinkhorn.py
+    lb = log_softmax(blend)
+    blend = (1 - SINK_ALPHA) * lb + SINK_ALPHA * sinkhorn(lb)
 pred = np.array(classes)[blend.argmax(1)]
 sub = pd.DataFrame({"id": test.id.astype(str).values, "model": pred})
-assert len(sub) == len(test)
-out_dir = "/kaggle/working" if os.path.isdir("/kaggle/working") else os.environ.get("NTL_OUT", ".")
-sub.to_parquet(f"{out_dir}/submission.parquet", index=False)
+assert len(sub) == len(test) and sub.id.is_unique and sub.model.isin(classes).all()
+sub.to_parquet(f"{OUT_DIR}/submission.parquet", index=False)
+vc = sub.model.value_counts()
+SUMMARY["prediction_counts"] = vc.to_dict()
+stage("written", rows=len(sub), classes_predicted=len(vc), top_share=round(float(vc.iloc[0] / len(sub)), 3))
 P(sub.model.value_counts().to_string(), "\nwritten", len(sub), "rows")

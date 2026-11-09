@@ -20,6 +20,7 @@ FAMILIES = {  # name -> fold dirs 0..3
            ROOT / "checkpoints/s2f3"],
     "s3": [ROOT / f"checkpoints/s3f{k}" for k in range(4)],
     "h3": [ROOT / f"checkpoints/h3f{k}" for k in range(4)],
+    "s4": [ROOT / f"checkpoints/s4ff{k}" for k in range(4)],  # stage 2 from run4 (92k pool rows)
 }
 train = pd.read_csv(ROOT / "data/train.csv")
 train["id"] = train.id.astype(str)
@@ -49,7 +50,8 @@ lgb = np.log(np.clip(np.load(ROOT / "data/processed/lgbm_ext_val_probs.npy")[pos
 print(f"rows {len(y)}")
 for k, v in F.items():
     print(f"{k}: raw {bacc(y, v.argmax(1)):.4f}  sinkhorn {bacc(y, sinkhorn(v).argmax(1)):.4f}")
-s2mix = sum(F.values()) / len(F)
+s4 = F.pop("s4")
+s2mix = sum(F.values()) / len(F)  # the three older families (s2, s3, h3); s4 is weighted separately
 print(f"mean of families: raw {bacc(y, s2mix.argmax(1)):.4f}  sinkhorn {bacc(y, sinkhorn(s2mix).argmax(1)):.4f}")
 
 
@@ -74,14 +76,45 @@ for name, dirs in FAMILIES.items():  # Kaggle-trained folds came back without fi
             (d / "final_eval.json").write_text(json.dumps(eval_json(log_softmax(np.load(d / "val_logits.npy")),
                                                                      f"fold validation ({len(y_)} passages)")))
 y_ = y
-CHOSEN = 0.8 * s2mix + 0.1 * svm + 0.1 * lgb  # the shipped blend (kernel_qwen v4)
+CHOSEN = 0.5 * s4 + 0.3 * s2mix + 0.1 * svm + 0.1 * lgb  # the shipped blend (kernel_qwen v6)
 np.savez(ROOT / "data/processed/blend_oof.npz", ids=np.asarray(ids), lp=log_softmax(CHOSEN), y=y)  # for challengers
-np.savez(ROOT / "data/processed/blend_parts.npz", ids=np.asarray(ids), y=y, s2mix=s2mix, svm=svm, lgb=lgb, s1=s1)
+np.savez(ROOT / "data/processed/blend_parts.npz", ids=np.asarray(ids), y=y, s2mix=s2mix, s4=s4, svm=svm, lgb=lgb,
+         s1=s1)  # s2mix = mean of the older three families; the v5 blend is 0.8 * s2mix + 0.1 * svm + 0.1 * lgb
 B = ROOT / "checkpoints/blend_best"
 B.mkdir(exist_ok=True)
 (B / "classes.json").write_text(json.dumps(classes))
 (B / "final_eval.json").write_text(json.dumps(eval_json(
-    CHOSEN, f"best blend, out-of-fold on folds 0-3 ({len(y):,} passages; LB 0.555)")))
+    CHOSEN, f"best blend v6, out-of-fold on folds 0-3 ({len(y):,} passages)")))
+
+text = train.set_index("id").loc[ids, "text"].fillna("").to_numpy()
+fold_ix = np.repeat(np.arange(4), [len(pd.read_csv(d / "val_ids.csv")) for d in FAMILIES["s2"]])
+from assign import find_groups  # noqa: E402
+
+groups = np.full(len(y), -1)
+for k in range(4):  # prompt clusters found per fold, as the notebook does on the test
+    m = fold_ix == k
+    groups[m] = find_groups(text[m]) + 10_000 * k
+
+
+def shipped_post(z):
+    z = log_softmax(z)
+    out = z.copy()
+    for g in np.unique(groups):
+        m = groups == g
+        if m.sum() >= 2:
+            out[m] -= 0.5 * z[m].mean(0)
+    out = log_softmax(out)
+    return 0.55 * out + 0.45 * sinkhorn(out)
+
+
+print(f"\ns4 alone: raw {bacc(y, s4.argmax(1)):.4f}")
+print("w_s4  w_old3  svm  lgbm   raw     centre+partial-sinkhorn   (per fold)")
+for w4, wo, wx in [(0, 0.8, 0.1), (0.2, 0.6, 0.1), (0.4, 0.4, 0.1), (0.5, 0.3, 0.1), (0.6, 0.2, 0.1),
+                   (0.8, 0.0, 0.1), (0.6, 0.3, 0.05), (1.0, 0, 0)]:
+    b = w4 * s4 + wo * s2mix + wx * svm + wx * lgb
+    pb = shipped_post(b).argmax(1)
+    per = " ".join(f"{bacc(y[fold_ix == k], pb[fold_ix == k]):.3f}" for k in range(4))
+    print(f"{w4:.1f}   {wo:.1f}     {wx:.2f} {wx:.2f}   {bacc(y, b.argmax(1)):.4f}  {bacc(y, pb):.4f}   ({per})")
 
 print("\nw_stage2(equal over families)  w_s1  w_svm  w_lgbm   raw     sinkhorn")
 for w2, w1, wx in [(1, 0, 0), (0.8, 0, 0.1), (0.7, 0.1, 0.1), (0.6, 0.2, 0.1), (0.6, 0.1, 0.15), (0.5, 0.2, 0.15)]:

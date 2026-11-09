@@ -10,3 +10,4 @@ checkpoints/
 research/GPU_HOLD
 research/GPU_SLOT_FREE
 research/code/*.parquet
+logs/
