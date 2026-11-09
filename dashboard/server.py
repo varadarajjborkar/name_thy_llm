@@ -7,6 +7,7 @@ The page reads the run's log files and the GPU. Its Start/Pause/Stop buttons cal
 commands you can type yourself. Closing this server does NOT affect training.
 """
 import argparse
+from urllib.parse import parse_qs, urlparse
 import json
 import math
 import re
@@ -33,10 +34,44 @@ ap.add_argument("--port", type=int, default=8765)
 ap.add_argument("--run", default="", help="default: the most recently started run")
 ap.add_argument("--no-browser", action="store_true")
 args = ap.parse_args()
-if not args.run:
-    act = ROOT / "checkpoints" / "ACTIVE_RUN"
-    args.run = act.read_text().strip() if act.exists() and act.read_text().strip() else "run1"
-RUN = ROOT / "checkpoints" / args.run
+CKPT = ROOT / "checkpoints"
+NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def default_run():
+    """--run if given, else the most recently started run (ACTIVE_RUN), read fresh on every request."""
+    if args.run:
+        return args.run
+    act = CKPT / "ACTIVE_RUN"
+    return act.read_text().strip() if act.exists() and act.read_text().strip() else "run1"
+
+
+def run_dir(name):
+    """Only plain folder names directly under checkpoints/ (no paths), so a request cannot read elsewhere."""
+    if not name or not NAME_RE.match(name) or name.startswith("."):
+        name = default_run()
+    return name, CKPT / name
+
+
+def list_runs():
+    out = []
+    for d in CKPT.iterdir() if CKPT.exists() else []:
+        if not d.is_dir() or not NAME_RE.match(d.name):
+            continue
+        has_log, fin = (d / "train.log").exists(), d / "final_eval.json"
+        if not has_log and not fin.exists():
+            continue
+        acc = None
+        try:
+            acc = json.loads(fin.read_text()).get("bal_acc")
+        except Exception:
+            pass
+        mt = max((p.stat().st_mtime for p in (d / "train.log", fin) if p.exists()), default=0)
+        state = "finished" if (d / "DONE_TRAINING").exists() or (fin.exists() and not has_log) else "in progress"
+        if has_log and any("not a real score" in l for l in read_lines(d / "train.log", 5)):
+            acc, state = None, "fit on all rows (no score)"  # trained on its own validation rows
+        out.append({"run": d.name, "state": state, "final_acc": acc, "mtime": mt})
+    return sorted(out, key=lambda r: -r["mtime"])
 
 STEP_RE = re.compile(r"^(\d\d):(\d\d):(\d\d) step (\d+)/(\d+) loss ([\d.]+) lr ([\d.eE+-]+) eta ([\d.]+)h")
 PLAN_RE = re.compile(r"plan: (\d+) steps/epoch x (\d+) = (\d+) optimizer steps, effective batch (\d+)")
@@ -78,7 +113,7 @@ def cached(key, ttl, fn):
     return _cache[key][1]
 
 
-def supervisor_alive():
+def supervisor_alive(RUN):
     f = RUN / "supervisor.pid"
     pid = int(f.read_text()) if f.exists() and f.read_text().strip().isdigit() else 0
     if not pid:
@@ -95,7 +130,7 @@ def watchdog_state():
     return out.stdout.strip().split(",")[-1].strip('"') if out.returncode == 0 else "not installed"
 
 
-def ckpt_size_gb():
+def ckpt_size_gb(RUN):
     d = RUN
     return round(sum(p.stat().st_size for p in d.rglob("*") if p.is_file()) / 2**30, 2) if d.exists() else 0
 
@@ -109,7 +144,7 @@ def read_lines(p, n=None):
     return lines[-n:] if n else lines
 
 
-def parse_train_log():
+def parse_train_log(RUN):
     pts, speeds, events = [], [], []
     bs, total, secs_prev, step_prev, day, active = 32, 0, None, None, 0, 0.0
     for line in read_lines(RUN / "train.log"):
@@ -136,7 +171,7 @@ def parse_train_log():
     return pts, speeds, events[-14:], bs, total, active
 
 
-def parse_metrics():
+def parse_metrics(RUN):
     out, last_rec = [], None
     for line in read_lines(RUN / "metrics.jsonl"):
         try:
@@ -149,20 +184,20 @@ def parse_metrics():
     return out, last_rec
 
 
-def recall_info(last_rec, balanced=False):
+def recall_info(RUN, last_rec, balanced=False):
     """Per-model recall for the newest eval, plus who each model is most often mistaken for."""
     src, step = "subset of 900 passages", None
     rec = cm = None
-    if balanced:
-        if not last_rec or not last_rec.get("recall_balanced"):
-            return None
-        last_rec = dict(last_rec, recall=last_rec["recall_balanced"], confusion=last_rec["confusion_balanced"])
-    try:
-        if balanced:
-            raise FileNotFoundError  # the final file holds raw results only
+    try:  # final full-validation results win; class-balanced versions exist only where they were saved
         fin = json.loads((RUN / "final_eval.json").read_text())
-        rec, cm, src, step = fin["recall"], fin["confusion"], "full validation set (2,699 passages)", "final"
+        rk, ck = ("recall_balanced", "confusion_balanced") if balanced else ("recall", "confusion")
+        rec, cm, step = fin[rk], fin[ck], "final"
+        src = fin.get("label") or f"full validation set ({sum(map(sum, cm)):,} passages)"
     except Exception:
+        if balanced and last_rec and last_rec.get("recall_balanced"):
+            last_rec = dict(last_rec, recall=last_rec["recall_balanced"], confusion=last_rec["confusion_balanced"])
+        elif balanced:
+            return None
         if last_rec:
             rec, cm, step = last_rec["recall"], last_rec["confusion"], last_rec["step"]
     try:
@@ -179,7 +214,7 @@ def recall_info(last_rec, balanced=False):
     return {"step": step, "source": src, "rows": rows}
 
 
-def system_events():
+def system_events(RUN):
     ev = []
     for name in ("supervisor.log", "watchdog.log"):
         for line in read_lines(RUN / name, 40):
@@ -189,8 +224,13 @@ def system_events():
     return ev[-14:]
 
 
-def run_setup():
+def run_setup(RUN):
     """What this run trains on, read from its own log (so the page never shows another run's setup)."""
+    if not (RUN / "train.log").exists():
+        try:
+            return json.loads((RUN / "final_eval.json").read_text()).get("label") or "evaluation only"
+        except Exception:
+            return "not started"
     txt = "\n".join(read_lines(RUN / "train.log")[:40])
     n = re.search(r"data: train ([\d,]+)", txt)
     ms = re.search(r"multi-scale: (\d+) layers", txt)
@@ -198,16 +238,17 @@ def run_setup():
     return f"Qwen3-4B with QLoRA ({arch}) · {n.group(1) if n else '?'} training passages"
 
 
-def build_state():
-    pts, speeds, events, bs, total, active = parse_train_log()
-    evals, last_rec = parse_metrics()
+def build_state(name=""):
+    name, RUN = run_dir(name)
+    pts, speeds, events, bs, total, active = parse_train_log(RUN)
+    evals, last_rec = parse_metrics(RUN)
     prog = {}
     try:
         prog = json.loads((RUN / "progress.json").read_text())
     except Exception:
         pass
     flag = lambda n: (RUN / n).exists()
-    alive = cached("alive", 15, supervisor_alive)
+    alive = cached(f"alive:{name}", 15, lambda: supervisor_alive(RUN))
     log_f = RUN / "train.log"
     quiet = time.time() - log_f.stat().st_mtime if log_f.exists() else None
     step = pts[-1]["step"] if pts else 0
@@ -225,6 +266,8 @@ def build_state():
         status, label = "stalled", "No progress for 30+ minutes"
     elif alive:
         status, label = "running", "Running"
+    elif (RUN / "final_eval.json").exists() and not log_f.exists():
+        status, label = "finished", "Evaluation only (no training of its own)"
     elif not RUN.exists() or not log_f.exists():
         status, label = "idle", "Not started"
     else:
@@ -241,26 +284,27 @@ def build_state():
 
     du = shutil.disk_usage(ROOT)
     return {
-        "run": args.run, "setup": run_setup(), "status": status, "label": label, "now": time.time(),
+        "run": name, "setup": run_setup(RUN), "status": status, "label": label, "now": time.time(),
         "step": step, "total": total, "batch": bs, "samples_done": step * bs,
         "active_seconds": active, "speed": speed, "eta_seconds": eta_s, "finish": finish,
         "last_checkpoint": prog.get("step", 0), "best_acc": prog.get("best", 0),
         "has_checkpoint": any((RUN / d / "OK").exists() for d in ("ckpt_latest", "ckpt_prev", "ckpt_tmp")),
-        "loss": pts, "evals": evals, "speed_pts": speeds, "recall": recall_info(last_rec), "recall_bal": recall_info(last_rec, balanced=True),
+        "loss": pts, "evals": evals, "speed_pts": speeds, "recall": recall_info(RUN, last_rec), "recall_bal": recall_info(RUN, last_rec, balanced=True),
         "gpu": dict(gpu_now), "gpu_hist": list(gpu_hist)[-360:],
-        "disk_free_gb": round(du.free / 2**30, 1), "run_dir_gb": cached("size", 60, ckpt_size_gb),
+        "disk_free_gb": round(du.free / 2**30, 1), "run_dir_gb": cached(f"size:{name}", 60, lambda: ckpt_size_gb(RUN)),
         "watchdog": cached("wd", 60, watchdog_state),
-        "train_events": events, "system_events": system_events(),
+        "train_events": events, "system_events": system_events(RUN),
         "log_tail": read_lines(RUN / "train.log", 30),
         "halted_reason": (RUN / "HALTED").read_text() if flag("HALTED") else "",
     }
 
 
 # ------------------------------------------------------------------ actions
-def run_ctl(cmd):
-    out = subprocess.run([PY, CTL, "--run", args.run, cmd], capture_output=True, text=True, timeout=90,
+def run_ctl(name, cmd):
+    name, _ = run_dir(name)
+    out = subprocess.run([PY, CTL, "--run", name, cmd], capture_output=True, text=True, timeout=90,
                          creationflags=NO_WINDOW, cwd=ROOT)
-    _cache.pop("alive", None)
+    _cache.pop(f"alive:{name}", None)
     return {"ok": out.returncode == 0, "message": (out.stdout or out.stderr).strip()[:400]}
 
 
@@ -291,7 +335,10 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             return self._send(200, (HERE / "index.html").read_bytes(), "text/html")
         if path == "/api/state":
-            return self._send(200, json.dumps(build_state()))
+            q = parse_qs(urlparse(self.path).query)
+            return self._send(200, json.dumps(build_state(q.get("run", [""])[0])))
+        if path == "/api/runs":
+            return self._send(200, json.dumps({"default": default_run(), "runs": list_runs()}))
         self._send(404, '{"error":"not found"}')
 
     def do_POST(self):
@@ -303,14 +350,14 @@ class Handler(BaseHTTPRequestHandler):
             cmd = ACTIONS[body["action"]]
         except Exception:
             return self._send(400, '{"error":"bad request"}')
-        self._send(200, json.dumps(run_ctl(cmd)))
+        self._send(200, json.dumps(run_ctl(str(body.get("run", "")), cmd)))
 
 
 if __name__ == "__main__":
     threading.Thread(target=poll_gpu, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://localhost:{args.port}"
-    print(f"Dashboard for '{args.run}' at {url}   (Ctrl+C to stop; training is not affected)")
+    print(f"Dashboard (default run '{default_run()}') at {url}   (Ctrl+C to stop; training is not affected)")
     if not args.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     try:

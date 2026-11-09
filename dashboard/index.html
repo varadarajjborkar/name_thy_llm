@@ -39,6 +39,9 @@
            border: 1px solid var(--axis); background: var(--surface); color: var(--ink); }
   button:hover:not(:disabled) { background: var(--wash); }
   button:focus-visible { outline: 2px solid var(--s-loss); outline-offset: 2px; }
+  .runsel { font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; margin-top: 8px; max-width: 100%;
+            border: 1px solid var(--axis); background: var(--surface); color: var(--ink); }
+  .runsel:focus-visible { outline: 2px solid var(--s-loss); outline-offset: 2px; }
   button:disabled { opacity: .45; cursor: not-allowed; }
   button.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
   button.primary:hover:not(:disabled) { background: var(--ink); opacity: .85; }
@@ -118,6 +121,7 @@
       <div class="eyebrow">Name That LLM</div>
       <h1>Training monitor</h1>
       <div class="sub" id="sub">Loading…</div>
+      <label class="sub">Run <select class="runsel" id="runSel" aria-label="Choose which run to show"></select></label>
     </div>
     <div class="actions">
       <span class="pill" id="pill" data-s="idle"><span class="dot"></span><span id="pillText">Loading…</span></span>
@@ -427,8 +431,28 @@ function render(s) {
 }
 
 /* ---------- data + actions ---------- */
+let selRun = new URLSearchParams(location.search).get("run") || "";  // "" = follow the latest started run
+async function loadRuns() {
+  try {
+    const j = await (await fetch("/api/runs", { cache: "no-store" })).json(), sel = $("runSel");
+    const opts = [["", `Latest started (${j.default})`]].concat(j.runs.map((r) =>
+      [r.run, `${r.run} · ${r.state}${r.final_acc != null ? ` · ${(r.final_acc * 100).toFixed(1)}%` : ""}`]));
+    const sig = JSON.stringify(opts);
+    if (sel.dataset.sig === sig) return;
+    sel.dataset.sig = sig; sel.textContent = "";
+    for (const [v, t] of opts) { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); }
+    sel.value = selRun;
+  } catch (e) {}
+}
+$("runSel").onchange = (e) => {
+  selRun = e.target.value;
+  const u = new URL(location.href); if (selRun) u.searchParams.set("run", selRun); else u.searchParams.delete("run");
+  history.replaceState(null, "", u);
+  for (const k in lastSig) delete lastSig[k];
+  refresh();
+};
 async function refresh() {
-  try { const r = await fetch("/api/state", { cache: "no-store" }); render(await r.json()); }
+  try { const r = await fetch(`/api/state?run=${encodeURIComponent(selRun)}`, { cache: "no-store" }); render(await r.json()); }
   catch (e) { $("pillText").textContent = "Dashboard lost contact with its server"; $("pill").dataset.s = "stalled"; }
 }
 function toast(t) { const e = $("toast"); e.textContent = t; e.style.display = "block"; clearTimeout(toast.h); toast.h = setTimeout(() => (e.style.display = "none"), 6000); }
@@ -436,7 +460,7 @@ async function act(action, confirmText) {
   if (confirmText && !confirm(confirmText)) return;
   for (const b of ["bStart", "bPause", "bStop"]) $(b).disabled = true;
   try {
-    const r = await fetch("/api/action", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "dashboard" }, body: JSON.stringify({ action }) });
+    const r = await fetch("/api/action", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "dashboard" }, body: JSON.stringify({ action, run: S ? S.run : selRun }) });
     const j = await r.json(); toast(j.message || (j.ok ? "Done." : "That did not work."));
   } catch (e) { toast("Could not reach the dashboard server."); }
   setTimeout(refresh, 1200);
@@ -456,7 +480,7 @@ $("bTheme").onclick = () => {
 try { const t = new URLSearchParams(location.search).get("theme") || localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
 let lastW = 0;
 new ResizeObserver(() => { const w = document.body.clientWidth; if (w === lastW) return; lastW = w; for (const k in lastSig) delete lastSig[k]; if (S) render(S); }).observe(document.body);
-refresh(); setInterval(refresh, 5000);
+loadRuns(); refresh(); setInterval(refresh, 5000); setInterval(loadRuns, 30000);
 </script>
 </body>
 </html>

@@ -13,11 +13,11 @@ import subprocess
 import sys
 import time
 
-EXP = "e013-regen-leaksafe"  # experiment id, also printed in summary.json
-# train_regen re-answers of the host prompts, minus the scored fold's prompts (built by the main agent)
+EXP = "e015-fgm"  # experiment id, also printed in summary.json
+# adversarial training: also train on input embeddings nudged (global norm eps 1.0) in the loss-increasing direction
 JOBS = [  # (job name, extra args for train_exp.py); job i runs on GPU i
-    ("f0", ["--cv-fold","0","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--extra","CODE:regen_excl_f0.parquet"]),
-    ("f1", ["--cv-fold","1","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--extra","CODE:regen_excl_f1.parquet"]),
+    ("f0", ["--cv-fold","0","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--fgm-eps","1.0"]),
+    ("f1", ["--cv-fold","1","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--fgm-eps","1.0"]),
 ]
 COMMON = ["--arch", "ms", "--layers", "24", "--compute-dtype", "fp16", "--eval-n", "0", "--ckpt-every", "1000000",
           "--eval-every", "1000000"]

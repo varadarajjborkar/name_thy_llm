@@ -84,6 +84,13 @@ ap.add_argument("--pseudo", default="", help=".npy of logits for the validation 
 ap.add_argument("--pseudo-frac", type=float, default=0.4)
 ap.add_argument("--lockbox-fold", type=int, default=-1,
                 help="stage 1: drop this GroupKFold fold of --val from validation, so no decision ever looks at it")
+ap.add_argument("--hn-weight", type=float, default=0.0,
+                help="hard-negative margin loss weight: penalise when the true class does not beat its strongest rival "
+                     "by --hn-margin logits ('it is NOT that sibling'); 0 = off")
+ap.add_argument("--hn-margin", type=float, default=1.0)
+ap.add_argument("--fgm-eps", type=float, default=0.0,
+                help="adversarial training (FGM): also train on embeddings nudged by eps in the direction that most "
+                     "increases the loss (global norm per batch); 0 = off")
 a = ap.parse_args()
 
 RUN = ROOT / "checkpoints" / a.run
@@ -267,6 +274,32 @@ else:
     P(f"multi-scale: {n_layers} layers, pooling depths {depths}")
 
 
+def task_loss(z, y):
+    loss = torch.nn.functional.cross_entropy(z, y, label_smoothing=a.label_smoothing)
+    if a.hn_weight > 0:  # the true class must beat its strongest rival by a margin
+        zt = z.gather(1, y[:, None]).squeeze(1)
+        rival = z.masked_fill(torch.nn.functional.one_hot(y, z.shape[1]).bool(), -1e4).max(1).values
+        loss = loss + a.hn_weight * torch.relu(a.hn_margin - (zt - rival)).mean()
+    return loss
+
+
+fgm = {"delta": None, "out": None}  # FGM state: perturbation to add, and the embedding output whose grad we need
+
+
+def _fgm_hook(mod, inp, out):
+    if fgm["delta"] is not None:
+        return out + fgm["delta"]
+    if a.fgm_eps > 0 and torch.is_grad_enabled() and out.requires_grad:
+        out.retain_grad()
+        fgm["out"] = out
+    return out
+
+
+if a.fgm_eps > 0:
+    _emb = model.base.get_input_embeddings() if hasattr(model, "base") else model.get_input_embeddings()
+    _emb.register_forward_hook(_fgm_hook)
+
+
 def logits_of(x, m):
     out = model(input_ids=x, attention_mask=m)
     return out.logits if hasattr(out, "logits") else out
@@ -418,15 +451,26 @@ while step < total_steps:
         idx = plan[first_micro + j]
         x, m = collate(tr_ids, idx, np.random.default_rng((a.seed, step, j)))
         y = torch.tensor(tr_y[idx], device="cuda")
-        loss = torch.nn.functional.cross_entropy(logits_of(x, m).float(), y, label_smoothing=a.label_smoothing)
+        loss = task_loss(logits_of(x, m).float(), y)
         if not torch.isfinite(loss):
             nonfinite += 1
             if nonfinite > 20:
                 P("too many non-finite losses, aborting")
                 sys.exit(3)
+            fgm["out"] = None
             continue
         scaler.scale(loss / a.accum).backward()
         tot += loss.item() / a.accum
+        if a.fgm_eps > 0 and fgm["out"] is not None and fgm["out"].grad is not None:
+            g = fgm["out"].grad.float()
+            gn = g.norm()
+            fgm["out"] = None
+            if torch.isfinite(gn) and gn > 0:  # scaler scaling cancels out in the normalisation
+                fgm["delta"] = (a.fgm_eps * g / gn).to(g.dtype).detach()
+                adv = task_loss(logits_of(x, m).float(), y)
+                fgm["delta"] = None
+                if torch.isfinite(adv):
+                    scaler.scale(adv / a.accum).backward()
     scaler.unscale_(opt)  # no-ops when bf16; with fp16 a step with inf/NaN gradients is skipped, not applied
     torch.nn.utils.clip_grad_norm_([p for _, p in named], 1.0)
     scaler.step(opt)

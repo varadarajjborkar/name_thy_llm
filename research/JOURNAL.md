@@ -223,3 +223,20 @@ What: e005 config plus train_regen_norm rows (all 18 models re-answering the hos
 
 ### Main agent note (2026-11-09 10:50)
 LB: three stage-2 fits (run2, run3, k_host3 starts) 0.8 + SVM 0.1 + LGBM 0.1, sinkhorn = **0.555** (OOF 0.591; previous 0.550 at OOF 0.580). Same-backbone ensembling gives diminishing returns; bigger gains need a stronger or different backbone or more real host-like data (decision for the user).
+
+### Adversarial ideas (main agent, 2026-11-09 13:00)
+Duel specialists (per sibling group, logistic on PCA of frozen run3 features, pool + host rows, out-of-fold): lose to the blend inside every group at 32/128/512 dims (e.g. gemini flash 0.553 vs 0.592, claude 0.713 vs 0.748); overriding costs 0.3-2.4 pts. Adversarial booster (logistic on blend OOF log-probs + PCA features, errors up-weighted, cross-fitted): best 0.5898 vs 0.5889 (noise), more error weight is worse. Conclusion: the sibling ceiling is signal in the data/features, not the decision layer. Both closed.
+
+### e014 hard-negative margin (main agent, 2026-11-09)
+What: e005 + hinge 0.5 x max(0, 1 - (true logit - strongest rival logit)), i.e. "it is NOT that sibling" inside stage-2 training. Result: raw 0.5759 / 0.5444 (mean 0.560 vs e005 0.557), sinkhorn 0.585 / 0.567. Decision: discard (within seed noise).
+
+### e015 FGM adversarial training (main agent, 2026-11-09)
+What: e005 + FGM, input embeddings perturbed by eps 1.0 (global norm per batch) along the loss gradient, second loss on the perturbed pass. Result: raw 0.5259 / 0.5315 (mean 0.529 vs 0.557), sinkhorn 0.533 / 0.544, 43 min per fold. Decision: discard. Adversarial direction closed: duel specialists, booster, hard-negative margin and FGM all flat or worse; the ceiling is feature information, not decision pressure.
+
+### Style-feature sibling re-ranker, v40-style (main agent, 2026-11-09)
+Per-group logistic on our 316 style features (pool 26k sibling rows + host outside fold), mass-preserving re-rank, out-of-fold: within-group style alone 0.48-0.55 vs blend 0.59-0.75; blend + style at lam 0.1/0.25/0.5/1.0: 0.5875/0.5843/0.5787/0.5685 vs 0.5889. Discard: the style evidence is already in the blend through the LightGBM member.
+
+### Notebook components, one by one (main agent, 2026-11-09 17:30)
+1. Partial Sinkhorn: alpha 0/0.25/0.45/0.65/0.85/1 on balanced OOF rows 0.589/0.591/0.594/0.595/0.592/0.591; on unbalanced resamples 0.583/0.582/0.581/0.580/0.574/0.571. KEEP alpha 0.45 (near-best when balanced, cheap hedge when not).
+2. OOF sibling-style residual, rebuilt as in the Who-am-I v40A code (family prefix experts on stylometry, reliability from inner OOF, disputed-row gate, max_alpha 0.08): 0.5903 argmax / 0.5917 with partial sinkhorn vs blend 0.5889 / 0.5940. Style experts reach only 0.39-0.42 within families. DROP.
+3. Four-view n-gram SVM (word, char, shape, topic-masked): host-only alone 0.361, host + pool (2k/model, w 0.3) alone 0.452 vs old SVM 0.371. In the blend: best of a 12-point weight grid 0.5972 vs 0.5940 partial-sinkhorn (+0.3, selection noise); at the old weight 0.5880. DROP: Qwen already carries this information.
