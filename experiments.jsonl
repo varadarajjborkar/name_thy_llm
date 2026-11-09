@@ -29,3 +29,5 @@
 {"time": "2026-11-09 10:39", "decision": "s3 folds 0-1 0.5667/0.5481 (distinct from e005, verified). 3-family stage-2 mean OOF raw 0.580; + svm .1 + lgbm .1: raw 0.589 sk 0.591", "evidence": "", "result": ""}
 {"time": "2026-11-09 11:08", "decision": "LB 0.555: 3-family stage-2 ensemble (OOF 0.591). Diminishing returns from same-backbone ensembles", "evidence": "", "result": ""}
 {"time": "2026-11-09 12:24", "decision": "run4 started: stage-1 continuation from run3 on pool_cont2 (86.5k unseen + 6k replay for qwen3.8-max, gemini-3.7-flash), lr 5e-5. Duel test running on CPU", "evidence": "gemini-3.7-flash and qwen3.8-max have no unseen pool rows left", "result": ""}
+{"time": "2026-11-09 12:26", "decision": "8B smoke: l24 15 s/step, l32 19 s/step, same acc at 40 steps (0.204). Launched k8a (8B, pool 60k) and k8b (8B, pool+hostlike) on Kaggle, about 9 h", "evidence": "", "result": ""}
+{"time": "2026-11-09 12:32", "decision": "Duel specialists lose inside every sibling group (cost 0.3-2.4 pts); adversarial booster best 0.5898 vs 0.5889 (noise). Both closed", "evidence": "ceiling is feature/data signal, not decision layer", "result": ""}

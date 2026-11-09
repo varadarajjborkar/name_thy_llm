@@ -223,3 +223,6 @@ What: e005 config plus train_regen_norm rows (all 18 models re-answering the hos
 
 ### Main agent note (2026-11-09 10:50)
 LB: three stage-2 fits (run2, run3, k_host3 starts) 0.8 + SVM 0.1 + LGBM 0.1, sinkhorn = **0.555** (OOF 0.591; previous 0.550 at OOF 0.580). Same-backbone ensembling gives diminishing returns; bigger gains need a stronger or different backbone or more real host-like data (decision for the user).
+
+### Adversarial ideas (main agent, 2026-11-09 13:00)
+Duel specialists (per sibling group, logistic on PCA of frozen run3 features, pool + host rows, out-of-fold): lose to the blend inside every group at 32/128/512 dims (e.g. gemini flash 0.553 vs 0.592, claude 0.713 vs 0.748); overriding costs 0.3-2.4 pts. Adversarial booster (logistic on blend OOF log-probs + PCA features, errors up-weighted, cross-fitted): best 0.5898 vs 0.5889 (noise), more error weight is worse. Conclusion: the sibling ceiling is signal in the data/features, not the decision layer. Both closed.

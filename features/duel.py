@@ -94,3 +94,32 @@ for dims in (32, 128, 512):
             sub = sub - np.log(np.exp(sub).sum(1, keepdims=True)) + mass  # keep the group's total probability
             new[np.ix_(rows, idx)] = sub
         print(f"  lam {lam}: balanced accuracy {bacc(y, new.argmax(1)):.4f} (blend {bacc(y, lp.argmax(1)):.4f})")
+
+# dashboard entry for the least harmful setting (dims 512, lam 0.5), so the per-model damage is visible
+import json  # noqa: E402
+
+spec = {g: np.full((len(y), len(m)), np.nan) for g, m in GROUPS.items()}
+for k in range(4):
+    for g, members in GROUPS.items():
+        va, pr = specialist_probs(512, k, members)
+        spec[g][va] = pr
+new, top = lp.copy(), lp.argmax(1)
+for g, members in GROUPS.items():
+    idx = np.array([cid[m] for m in members])
+    rows = np.isin(top, idx)
+    sub = new[np.ix_(rows, idx)]
+    mass = np.log(np.exp(sub).sum(1, keepdims=True))
+    sub = sub + 0.5 * np.log(np.clip(spec[g][rows], 1e-6, 1))
+    new[np.ix_(rows, idx)] = sub - np.log(np.exp(sub).sum(1, keepdims=True)) + mass
+D = ROOT / "checkpoints/blend_duel"
+D.mkdir(exist_ok=True)
+ev = {"bal_acc": bacc(y, new.argmax(1)), "classes": classes,
+      "label": f"blend + duel specialists (512 dims, lam 0.5), out-of-fold folds 0-3 ({len(y):,} passages)"}
+for key, z in (("", new), ("_balanced", new)):
+    cm = np.zeros((len(classes), len(classes)), dtype=int)
+    np.add.at(cm, (y, z.argmax(1)), 1)
+    ev["recall" + key] = [round(float(r), 4) for r in cm.diagonal() / np.maximum(cm.sum(1), 1)]
+    ev["confusion" + key] = cm.tolist()
+(D / "final_eval.json").write_text(json.dumps(ev))
+(D / "classes.json").write_text(json.dumps(classes))
+print("dashboard entry blend_duel written")
