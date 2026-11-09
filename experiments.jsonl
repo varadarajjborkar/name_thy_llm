@@ -37,3 +37,6 @@
 {"time": "2026-11-09 15:55", "decision": "run4 step 1500: raw 0.521 bal 0.561 (best stage-1 balanced), val loss 1.303. Continue", "evidence": "", "result": ""}
 {"time": "2026-11-09 16:10", "decision": "e015 FGM eps 1.0: raw 0.529 vs 0.557: discard. Adversarial direction closed (4 variants flat or worse)", "evidence": "", "result": ""}
 {"time": "2026-11-09 16:11", "decision": "style-feature sibling re-ranker (v40-style): flat to worse (0.5875 best vs 0.5889); style already in blend via LGBM", "evidence": "", "result": ""}
+{"time": "2026-11-09 16:53", "decision": "run4 step 2000 logged", "evidence": "", "result": ""}
+{"time": "2026-11-09 17:18", "decision": "API generation dropped again: Kaggle proxy lacks gemini-3.7-flash (and glm, kimi, qwen, claude). Imbalance fix if needed: class weighting in next stage-1 run", "evidence": "", "result": ""}
+{"time": "2026-11-09 17:21", "decision": "Partial sinkhorn alpha 0.45: keep (0.594 balanced, -0.2 unbalanced vs full -1.2). v40A sibling-style residual rebuilt: noise/worse, drop", "evidence": "", "result": ""}
