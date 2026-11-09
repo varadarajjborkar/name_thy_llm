@@ -220,3 +220,6 @@ research/runs/<exp>/<job>/.
 
 ### e013 leak-safe train_regen extras (main agent, 2026-11-09)
 What: e005 config plus train_regen_norm rows (all 18 models re-answering the host prompts), with the scored fold's prompts removed. Result: raw 0.5185 / 0.5444 (mean 0.531, e005 0.557), sinkhorn 0.535 / 0.565, 46 min. Decision: discard. External rows hurt stage 2 even when topic-matched (same as e006 hostlike, -2.9). Keep train_regen out of the final fit too.
+
+### Main agent note (2026-11-09 10:50)
+LB: three stage-2 fits (run2, run3, k_host3 starts) 0.8 + SVM 0.1 + LGBM 0.1, sinkhorn = **0.555** (OOF 0.591; previous 0.550 at OOF 0.580). Same-backbone ensembling gives diminishing returns; bigger gains need a stronger or different backbone or more real host-like data (decision for the user).

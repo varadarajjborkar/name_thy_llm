@@ -27,3 +27,4 @@
 {"time": "2026-11-09 10:05", "decision": "e013 leak-safe regen in stage 2: raw 0.531 vs 0.557: discard; keep regen out of final fit", "evidence": "", "result": ""}
 {"time": "2026-11-09 10:10", "decision": "stage 2 from kh3: folds 0.5593 0.5519 0.5778 0.5981 (mean 0.572; run2-based 0.566)", "evidence": "", "result": ""}
 {"time": "2026-11-09 10:39", "decision": "s3 folds 0-1 0.5667/0.5481 (distinct from e005, verified). 3-family stage-2 mean OOF raw 0.580; + svm .1 + lgbm .1: raw 0.589 sk 0.591", "evidence": "", "result": ""}
+{"time": "2026-11-09 11:08", "decision": "LB 0.555: 3-family stage-2 ensemble (OOF 0.591). Diminishing returns from same-backbone ensembles", "evidence": "", "result": ""}
