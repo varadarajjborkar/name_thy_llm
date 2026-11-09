@@ -175,3 +175,6 @@ fold's training rows, retrain from run2final with the e005 recipe, score on the 
 pseudo rows are the easy ones (little new information), and a 540-row fold gives only ~216 pseudo rows versus ~1,600 on
 the real test, so CV likely understates any gain. Needs train_exp.py --pseudo/--pseudo-frac (dataset versioned) and the
 runner's CODE:<file> argument resolver. Fold labels are never read to build the pseudo set.
+
+### Main agent note (2026-11-09 08:55)
+Kaggle stage-1 data runs (full val 2,160 rows): run2 (pool) 0.521, k_host1 (pool+hostlike) 0.528, k_host3 (pool+hostlike x3) 0.530. Stage-1 ensembles: run2+kh3 raw 0.541 / sinkhorn 0.554. Uploaded as kh1final, kh3final. Main agent runs stage 2 from kh3final (folds 0-3 + full fit) in kernel ntl-s2-main (main agent slot); research agent should not duplicate this.

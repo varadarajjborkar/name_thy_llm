@@ -20,3 +20,6 @@
 {"time": "2026-11-09 06:19", "decision": "stage-2 4-fold OOF raw 0.566; blend s2 .6 s1 .2 svm .1 lgbm .1: OOF raw 0.575 sk 0.580. Pushing to LB", "evidence": "", "result": ""}
 {"time": "2026-11-09 06:44", "decision": "LB 0.550: stage-2 blend (OOF 0.580). New best", "evidence": "", "result": ""}
 {"time": "2026-11-09 07:05", "decision": "seed avg fold2: 0.5833 vs 0.5685/0.5796. run3: stage-1 continuation on pool_cont_30k from run2final, lr 5e-5; then s3f2/s3f3", "evidence": "", "result": ""}
+{"time": "2026-11-09 07:32", "decision": "run3 step 250: raw 0.484 bal 0.517 (run2 end 0.518/0.529): re-warm dip at lr 5e-5, continue; judged by stage-2 A/B", "evidence": "", "result": ""}
+{"time": "2026-11-09 08:00", "decision": "run3 step 500: raw 0.510 bal 0.517, recovering", "evidence": "", "result": ""}
+{"time": "2026-11-09 08:55", "decision": "k_host1 0.528, k_host3 0.530 vs run2 0.521 (full val). Ensemble run2+kh3 0.541/0.554. Stage 2 from kh3 on Kaggle (ntl-s2-main)", "evidence": "", "result": ""}
