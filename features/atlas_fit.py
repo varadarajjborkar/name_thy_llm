@@ -32,7 +32,8 @@ for seed in range(5):
     m = lgbm.train(dict(PRM, seed=seed), lgbm.Dataset(X, Y, weight=w), num_boost_round=300)
     m.save_model(str(OUT / f"atlas_lgb_s{seed}.txt"))
 # training feature means / sds: the notebook drops ATLAS if the test features drift (a different library version)
-# calibration: host, pool, bf16-vs-fp16 and 300-row samples shift by max |z| <= 0.28, a one-class subset 0.53
+# calibration: host, pool, bf16-vs-fp16 and 300-row samples shift by max |z| <= 0.28; one-model-only subsets up to
+# mean |z| 0.66 / max 0.94. The notebook drops ATLAS above 1.0 / 2.0.
 (OUT / "atlas_meta.json").write_text(json.dumps({"cols": COLS, "classes": classes, "seeds": 5, "maxlen": 320,
                                                  "dtype": "fp16", "rows": int(len(Y)),
                                                  "mean": X.mean(0).tolist(), "sd": (X.std(0) + 1e-9).tolist()}))

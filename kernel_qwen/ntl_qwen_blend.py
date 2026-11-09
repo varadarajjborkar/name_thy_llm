@@ -146,9 +146,13 @@ def stage_model(src):
             return src
         t0 = time.time()
         shutil.copytree(src, dst, dirs_exist_ok=True)
+        got = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(dst) for f in fs)
+        if got != need:
+            raise OSError(f"copy incomplete: {got} of {need} bytes")
         stage("model staged to local disk", gb=round(need / 2**30, 1), seconds=round(time.time() - t0, 1))
         return dst
-    except Exception as e:  # any copy problem: read from the input mount as before
+    except Exception as e:  # any copy problem: remove the partial copy and read from the input mount as before
+        shutil.rmtree(dst, ignore_errors=True)
         stage("model staging failed, reading from input", error=f"{type(e).__name__}: {e}")
         return src
 
@@ -313,8 +317,11 @@ if "atlas" in WEIGHTS or ATLAS_PROBE:
         if len(Xa) >= 100 and "mean" in meta:  # drift guard: features unlike the training ones -> leave ATLAS out
             z = np.abs((np.nanmean(np.where(np.isfinite(Xa), Xa, np.nan), 0) - np.array(meta["mean"]))
                        / np.array(meta["sd"]))
-            SUMMARY["atlas_drift"] = {"mean_abs_z": round(float(z.mean()), 3), "max_abs_z": round(float(z.max()), 3)}
-            if z.mean() > 0.6 or z.max() > 1.2:
+            SUMMARY["atlas_drift"] = {"mean_abs_z": round(float(np.nanmean(z)), 3),
+                                      "max_abs_z": round(float(np.nanmax(z)), 3) if np.isfinite(z).any() else None}
+            # worst legitimate case measured on train: a test made of ONE model only, mean |z| 0.66, max 0.94;
+            # a broken library shifts by several sd. A column with no finite value at all also fails (fail closed).
+            if not np.isfinite(z).all() or z.mean() > 1.0 or z.max() > 2.0:
                 raise RuntimeError(f"ATLAS features drifted from training (mean |z| {z.mean():.2f}, max {z.max():.2f})")
         pa = np.mean([lgb.Booster(model_file=find(f"atlas_lgb_s{s}.txt")).predict(np.nan_to_num(Xa))
                       for s in range(meta["seeds"])], 0)
