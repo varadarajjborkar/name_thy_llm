@@ -75,7 +75,9 @@ ap.add_argument("--compute-dtype", choices=["bf16", "fp16"], default="bf16",
                 help="fp16 for GPUs without native bf16 (Kaggle T4/P100); uses loss scaling")
 ap.add_argument("--lockbox-fold", type=int, default=-1,
                 help="stage 1: drop this GroupKFold fold of --val from validation, so no decision ever looks at it")
+ap.add_argument("--model", default=str(MODEL), help="base model folder (default Qwen3-4B base)")
 a = ap.parse_args()
+MODEL = Path(a.model)
 
 RUN = ROOT / "checkpoints" / a.run
 RUN.mkdir(parents=True, exist_ok=True)
@@ -287,7 +289,7 @@ def load_ckpt():
                 st = torch.load(d / "state.pt", map_location="cpu", weights_only=False)
                 for k in ("seed", "bs", "accum", "epochs", "n_train", "lora_r", "maxlen", "train", "lr", "head_lr",
                           "warmup", "arch", "layers", "depths", "cv_fold", "cv_folds", "label_smoothing", "init",
-                          "lockbox_fold", "compute_dtype"):
+                          "lockbox_fold", "compute_dtype", "model"):
                     old = st["args"].get(k, ap.get_default(k))  # checkpoints from before an option existed
                     if old != getattr(a, k):
                         P(f"FATAL: --{k.replace('_', '-')} changed since the checkpoint ({old} -> {getattr(a, k)}). "

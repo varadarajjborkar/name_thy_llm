@@ -75,6 +75,7 @@ for name, dirs in FAMILIES.items():  # Kaggle-trained folds came back without fi
                                                                      f"fold validation ({len(y_)} passages)")))
 y_ = y
 CHOSEN = 0.8 * s2mix + 0.1 * svm + 0.1 * lgb  # the shipped blend (kernel_qwen v4)
+np.savez(ROOT / "data/processed/blend_oof.npz", ids=np.asarray(ids), lp=log_softmax(CHOSEN), y=y)  # for challengers
 B = ROOT / "checkpoints/blend_best"
 B.mkdir(exist_ok=True)
 (B / "classes.json").write_text(json.dumps(classes))
