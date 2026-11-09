@@ -266,3 +266,7 @@ Participant claims worth testing (not accepted at face value):
 - fp16 on T4 with a growing LoRA can overflow, skipped batches cost 0.10 OOF in one report: check our Kaggle 8B run's skipped-batch count. Kaggle TPU v5e-8 reported 14x faster than 2xT4 for Qwen3-8B LoRA in bf16, but queue waits up to ~23 h.
 - Base-LM likelihood features (GLM-4-9B, Qwen3-8B) reported -0.002 in one grouped-CV stack: low prior for ATLAS.
 - Noise of a difference of two public scores: sd ~ sqrt(f / n_public), f = share of rows where exactly one is right; for f 10-20% and 1,600 rows, 0.008-0.011.
+
+### Notebook component 5: ATLAS-style base-LM likelihood view (main agent, 2026-11-09 22:15)
+Qwen3-4B base (4-bit, bf16 compute) per-token log-prob / entropy / top-1 stats -> 37 features (features/atlas.py), LightGBM on host (+2,950 pool rows) out of fold (features/atlas_eval.py). Alone 0.118 (chance 0.056): weak, but independent. Added to the v6 blend before centering + partial sinkhorn (baseline 0.6394): ungated w 0.1 0.6486, w 0.2 0.6519; gates add nothing. Per fold (w 0.1 / 0.2): 0.650 -> 0.652 / 0.661, 0.593 -> 0.607 / 0.609, 0.656 -> 0.667 / 0.672, 0.659 -> 0.669 / 0.665: up on every fold. KEEP, ungated, w 0.15 (middle of the plateau, not the grid best). To ship: compute the features in the notebook with the same dtype as on Kaggle (fp16 on T4; recompute local features in fp16 to match), LightGBM trained on all host + pool rows.
+Shared-prompt Gaussian re-run after the error-check fixes, against the v6 blend: partial groups 0.6180 -> 0.6185 at best. Still DROP.
