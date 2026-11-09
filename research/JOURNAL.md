@@ -232,3 +232,6 @@ What: e005 + hinge 0.5 x max(0, 1 - (true logit - strongest rival logit)), i.e. 
 
 ### e015 FGM adversarial training (main agent, 2026-11-09)
 What: e005 + FGM, input embeddings perturbed by eps 1.0 (global norm per batch) along the loss gradient, second loss on the perturbed pass. Result: raw 0.5259 / 0.5315 (mean 0.529 vs 0.557), sinkhorn 0.533 / 0.544, 43 min per fold. Decision: discard. Adversarial direction closed: duel specialists, booster, hard-negative margin and FGM all flat or worse; the ceiling is feature information, not decision pressure.
+
+### Style-feature sibling re-ranker, v40-style (main agent, 2026-11-09)
+Per-group logistic on our 316 style features (pool 26k sibling rows + host outside fold), mass-preserving re-rank, out-of-fold: within-group style alone 0.48-0.55 vs blend 0.59-0.75; blend + style at lam 0.1/0.25/0.5/1.0: 0.5875/0.5843/0.5787/0.5685 vs 0.5889. Discard: the style evidence is already in the blend through the LightGBM member.
