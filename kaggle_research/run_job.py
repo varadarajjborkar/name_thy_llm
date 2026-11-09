@@ -13,10 +13,10 @@ import subprocess
 import sys
 import time
 
-EXP = "e006-hostlike3k"  # experiment id, also printed in summary.json
+EXP = "e007-ls0.1"  # experiment id, also printed in summary.json
 JOBS = [  # (job name, extra args for train_exp.py); job i runs on GPU i
-    ("f0", ["--cv-fold", "0", "--init", "INIT:run2final", "--lr", "1e-4", "--head-lr", "1e-3", "--epochs", "2", "--extra", "data/processed/hostlike.parquet", "--extra-n", "3000"]),
-    ("f1", ["--cv-fold", "1", "--init", "INIT:run2final", "--lr", "1e-4", "--head-lr", "1e-3", "--epochs", "2", "--extra", "data/processed/hostlike.parquet", "--extra-n", "3000"]),
+    ("f0", ["--cv-fold", "0", "--init", "INIT:run2final", "--lr", "1e-4", "--head-lr", "1e-3", "--epochs", "2", "--label-smoothing", "0.1"]),
+    ("f1", ["--cv-fold", "1", "--init", "INIT:run2final", "--lr", "1e-4", "--head-lr", "1e-3", "--epochs", "2", "--label-smoothing", "0.1"]),
 ]
 COMMON = ["--arch", "ms", "--layers", "24", "--compute-dtype", "fp16", "--eval-n", "0", "--ckpt-every", "1000000",
           "--eval-every", "1000000"]
