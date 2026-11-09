@@ -15,3 +15,4 @@ e011	2026-11-09	higher dropout	e005 config + --lora-dropout 0.15 --head-dropout 
 e012	2026-11-09	pseudo-label top 40% of val rows	e005 config + 216 pseudo rows from e005+e010 ensemble (label-free)	0.5519	0.537			0.7185	0.5537	0.5444	discard: -1.3 raw vs e005 (within noise, no gain)	0.45	5.67
 e013	2026-11-09	train_regen extras, leak-safe (fold prompts removed)	init run2final, e005 config + --extra regen_excl_f{k} (2160 rows)	0.5185	0.5444				0.55	0.5315	discard: -2.6 raw vs e005 (external rows hurt stage 2, as e006)	0.77	6.44
 e014	2026-11-09	hard-negative margin (NOT its sibling)	init run2final, e005 config + --hn-weight 0.5 --hn-margin 1.0	0.5759	0.5444				0.576	0.5602	discard: +0.3 raw vs e005 (noise, below keep rule)	0.44	6.88
+e015	2026-11-09	FGM adversarial training eps 1.0	init run2final, e005 config + --fgm-eps 1.0	0.5259	0.5315				0.539	0.5287	discard: -2.9 raw vs e005	0.72	7.60

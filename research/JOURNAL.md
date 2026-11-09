@@ -229,3 +229,6 @@ Duel specialists (per sibling group, logistic on PCA of frozen run3 features, po
 
 ### e014 hard-negative margin (main agent, 2026-11-09)
 What: e005 + hinge 0.5 x max(0, 1 - (true logit - strongest rival logit)), i.e. "it is NOT that sibling" inside stage-2 training. Result: raw 0.5759 / 0.5444 (mean 0.560 vs e005 0.557), sinkhorn 0.585 / 0.567. Decision: discard (within seed noise).
+
+### e015 FGM adversarial training (main agent, 2026-11-09)
+What: e005 + FGM, input embeddings perturbed by eps 1.0 (global norm per batch) along the loss gradient, second loss on the perturbed pass. Result: raw 0.5259 / 0.5315 (mean 0.529 vs 0.557), sinkhorn 0.533 / 0.544, 43 min per fold. Decision: discard. Adversarial direction closed: duel specialists, booster, hard-negative margin and FGM all flat or worse; the ceiling is feature information, not decision pressure.

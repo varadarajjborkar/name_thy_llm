@@ -34,3 +34,5 @@
 {"time": "2026-11-09 13:23", "decision": "run4 step 500: raw 0.474 bal 0.521 (run3 end 0.533/0.544) but val loss 1.438 vs 1.693: sibling churn at peak lr. Hold to step 1000; stop if bal < 0.544 there", "evidence": "", "result": ""}
 {"time": "2026-11-09 14:22", "decision": "Prompt centering OOF: +sinkhorn, w 0.5: full groups 0.594->0.643, partial 0.586->0.594; w 0.25: 0.614 / 0.597. Kernel CENTER_W=0.5 prepared, LB probe awaits user OK. run4 step 1000: raw 0.501 bal 0.532 val loss 1.354; paused at 1005, stage-2 A/B s4f2/s4f3 running", "evidence": "", "result": ""}
 {"time": "2026-11-09 14:57", "decision": "run4 A/B: stage 2 from run4@1005 f2 0.6167 f3 0.5778 (run3-based 0.5944/0.5815) mean +0.9; 4-model ens +0.9 raw over 3. Resumed run4", "evidence": "", "result": ""}
+{"time": "2026-11-09 15:55", "decision": "run4 step 1500: raw 0.521 bal 0.561 (best stage-1 balanced), val loss 1.303. Continue", "evidence": "", "result": ""}
+{"time": "2026-11-09 16:10", "decision": "e015 FGM eps 1.0: raw 0.529 vs 0.557: discard. Adversarial direction closed (4 variants flat or worse)", "evidence": "", "result": ""}
