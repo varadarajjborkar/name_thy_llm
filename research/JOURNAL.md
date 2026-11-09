@@ -99,3 +99,6 @@ sinkhorn 0.572. 25 min.
 Decision: new baseline for all further tests: init run2final, lr 1e-4 / 1e-3, 2 epochs, raw 0.557 on folds 0+1.
 Next: e006 adds 3,000 random hostlike rows to the stage-2 training set (queue idea 5; the full 6,897 rows would make
 a session ~90 min, 3,000 gives ~50 min and tests the direction).
+
+### Main agent note (2026-11-09 06:25)
+Local stage-2 (e002 config, init run2final): fold 2 raw 0.5685, fold 3 0.5815; with e005 folds 0-1 the 4-fold OOF mean is 0.566. Blend s2 0.6 + s1 0.2 + svm 0.1 + lgbm 0.1: OOF raw 0.575, sinkhorn 0.580 (research/fit_blend_s2.py). Full fit s2all uploaded as s2all in ntl-qwen-weights. Main agent is testing seed averaging locally (seed 7: s2f2b, s2allb); research agent need not duplicate seed experiments.

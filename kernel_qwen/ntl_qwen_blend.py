@@ -21,10 +21,12 @@ import pandas as pd
 
 ROOT = os.environ.get("NTL_ROOT", "/kaggle/input")
 # member -> (weight, temperature). Qwen members are listed by their folder name inside ntl-qwen-weights.
-# Chosen on train.csv rows outside the lockbox (research/fit_blend.py, unseen by every member):
-# Qwen final+step1700 0.8, SVM 0.1, LGBM 0.1 -> raw 0.543, sinkhorn 0.546 (grid is flat around it).
-WEIGHTS = {"qwen:run2final": (0.4, 1.0), "qwen:run2s1700": (0.4, 1.0), "svm": (0.1, 3.0), "lgbm": (0.1, 1.0)}
-SINKHORN = False
+# History: stage-1 Qwen (final+s1700) 0.8 + SVM 0.1 + LGBM 0.1: OOF 0.543/0.546, LB 0.520 argmax / 0.521 sinkhorn.
+# Now (research/fit_blend_s2.py, stage-2 OOF folds 0-3, 2,160 rows): stage-2 full fit 0.6 + stage-1 0.2
+# + SVM 0.1 + LGBM 0.1 -> raw 0.575, sinkhorn 0.580. Grid is flat around it.
+WEIGHTS = {"qwen:s2all": (0.6, 1.0), "qwen:run2final": (0.1, 1.0), "qwen:run2s1700": (0.1, 1.0),
+           "svm": (0.1, 3.0), "lgbm": (0.1, 1.0)}
+SINKHORN = True
 PARITY = False  # True only for pipeline checks; never in a submission
 t_start = time.time()
 
