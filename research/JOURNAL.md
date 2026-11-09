@@ -102,3 +102,15 @@ a session ~90 min, 3,000 gives ~50 min and tests the direction).
 
 ### Main agent note (2026-11-09 06:25)
 Local stage-2 (e002 config, init run2final): fold 2 raw 0.5685, fold 3 0.5815; with e005 folds 0-1 the 4-fold OOF mean is 0.566. Blend s2 0.6 + s1 0.2 + svm 0.1 + lgbm 0.1: OOF raw 0.575, sinkhorn 0.580 (research/fit_blend_s2.py). Full fit s2all uploaded as s2all in ntl-qwen-weights. Main agent is testing seed averaging locally (seed 7: s2f2b, s2allb); research agent need not duplicate seed experiments.
+
+### e006 add 3,000 hostlike rows to stage 2 (2026-11-09)
+What: e005 config plus a random 3,000-row sample of hostlike.parquet (seed 42) appended to each fold's ~2.1k real rows
+(~5.1k rows, 2 epochs, 320 steps). Why: queue idea 5; more host-like text might add data volume.
+Result: f0 raw 0.535 / sinkhorn 0.544, f1 0.520 / 0.533. Mean raw 0.528 vs 0.557 for e005 (-2.9), 49 min vs 25.
+Decision: discard. Hostlike text, as used here, drags stage 2 away from the real train.csv distribution (more rows of
+a slightly different distribution cost accuracy rather than add it). I did not test a smaller share or a pre-training
+mix; with this much of a loss I do not expect a small share to give the +1.0 needed.
+Offline ensembles (CPU, log-softmax averages on the same folds): e005 alone 0.557; e005+e002 (other init) 0.558;
+e005+e006 0.560; e005+e002+e004 0.549. No ensemble of stage-2 runs from this recipe gains >= 1 point, so checkpoint /
+config averaging is not worth GPU time here. The plateau around 0.55 seems robust to lr, epochs, init mix and ensembling.
+Next: e007 label smoothing 0.1, e008 batch 16 (more optimizer steps), then a seed repeat of the best to measure noise.
