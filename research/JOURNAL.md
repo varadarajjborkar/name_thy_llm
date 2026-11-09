@@ -136,3 +136,13 @@ and extra hostlike all land at 0.53-0.56 raw on folds 0+1; only the init (run2fi
 or off-distribution data (hostlike, -2.9) moved the number. Optimisation tweaks are exhausted, so the next ideas
 target regularisation / data: e009 random-span crop augmentation (--crop-min 0.6), e010 higher LoRA/head dropout.
 Both need new train_exp.py options (--crop-min, --lora-dropout, --head-dropout; defaults reproduce the old behaviour).
+
+### e009 random-span crop augmentation (2026-11-09)
+What: e005 config; each training passage is cut to a random contiguous span of 60-100% of its tokens (rows under 48
+tokens untouched), new crop each time a row is seen. Why: stage 2 is data-limited (2.1k rows), crops give the model
+different views of the same passage.
+Result: f0 raw 0.557 / sinkhorn 0.552, f1 0.528 / 0.565. Mean raw 0.543 vs 0.557 (-1.5). 23 min.
+Decision: discard. Shorter views remove style evidence and the eval passages are always full length.
+Next: e010 = e005 with --seed 7. Not an improvement test: it measures run-to-run noise (same config, different seed:
+batch order, LoRA dropout masks, head dropout) so every difference above can be read against it; and the logits give a
+real two-seed ensemble test.
