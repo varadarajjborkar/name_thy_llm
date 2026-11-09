@@ -51,6 +51,36 @@ for k, v in F.items():
     print(f"{k}: raw {bacc(y, v.argmax(1)):.4f}  sinkhorn {bacc(y, sinkhorn(v).argmax(1)):.4f}")
 s2mix = sum(F.values()) / len(F)
 print(f"mean of families: raw {bacc(y, s2mix.argmax(1)):.4f}  sinkhorn {bacc(y, sinkhorn(s2mix).argmax(1)):.4f}")
+
+
+def eval_json(lp, label):
+    """Recall and confusion, raw and class-balanced, in the trainer's final_eval.json format (for the dashboard)."""
+    out = {"bal_acc": bacc(y_, lp.argmax(1)), "classes": classes, "label": label}
+    for key, z in (("", lp), ("_balanced", sinkhorn(lp))):
+        cm = np.zeros((len(classes), len(classes)), dtype=int)
+        np.add.at(cm, (y_, z.argmax(1)), 1)
+        out["recall" + key] = [round(float(r), 4) for r in cm.diagonal() / np.maximum(cm.sum(1), 1)]
+        out["confusion" + key] = cm.tolist()
+    return out
+
+
+import json  # noqa: E402
+
+for name, dirs in FAMILIES.items():  # Kaggle-trained folds came back without final_eval.json
+    for d in dirs:
+        if not (d / "final_eval.json").exists() and d.parent.name == "checkpoints":
+            ids_d = pd.read_csv(d / "val_ids.csv")
+            y_ = ids_d.model.map({c: i for i, c in enumerate(classes)}).to_numpy()
+            (d / "final_eval.json").write_text(json.dumps(eval_json(log_softmax(np.load(d / "val_logits.npy")),
+                                                                     f"fold validation ({len(y_)} passages)")))
+y_ = y
+CHOSEN = 0.8 * s2mix + 0.1 * svm + 0.1 * lgb  # the shipped blend (kernel_qwen v4)
+B = ROOT / "checkpoints/blend_best"
+B.mkdir(exist_ok=True)
+(B / "classes.json").write_text(json.dumps(classes))
+(B / "final_eval.json").write_text(json.dumps(eval_json(
+    CHOSEN, f"best blend, out-of-fold on folds 0-3 ({len(y):,} passages; LB 0.555)")))
+
 print("\nw_stage2(equal over families)  w_s1  w_svm  w_lgbm   raw     sinkhorn")
 for w2, w1, wx in [(1, 0, 0), (0.8, 0, 0.1), (0.7, 0.1, 0.1), (0.6, 0.2, 0.1), (0.6, 0.1, 0.15), (0.5, 0.2, 0.15)]:
     b = w2 * s2mix + w1 * s1 + wx * svm + wx * lgb
