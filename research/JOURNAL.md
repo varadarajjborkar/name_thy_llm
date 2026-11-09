@@ -160,3 +160,18 @@ The keep rule (>= 1.0) is about the noise size, so any single positive result ne
 Next: e011 dropout (LoRA 0.15, head 0.3), the last cheap regularisation test; if flat, the stage-2 hyper-parameters
 are done and I move to something structural (pseudo-labelling the unlabeled evaluation rows, label-free so it is
 legal in CV).
+
+### e011 higher dropout (2026-11-09)
+What: e005 config with LoRA dropout 0.15 (was 0.05) and head dropout 0.3 (was 0.1). Result: f0 raw 0.557 / sinkhorn
+0.583, f1 0.537 / 0.570. Mean raw 0.547 vs 0.557 (seed-7 repeat of e005 gave 0.548), sinkhorn 0.577 (highest so far,
+but within the same noise). Decision: discard, flat. This closes the stage-2 hyper-parameter sweep: nothing beats the
+e005 recipe beyond noise.
+
+### e012 plan: pseudo-labelling the unlabeled evaluation rows (2026-11-09)
+Idea: the hidden test (~4,000 unlabeled rows) is available at inference time, so a self-training stage is legal. CV
+simulation, label-free: take the e005+e010 averaged predictions on a fold's validation rows, keep the most confident 40%
+(offline check on folds 0/1: top 30% is 86% correct, top 50% is 75% correct) with the argmax as label, add them to the
+fold's training rows, retrain from run2final with the e005 recipe, score on the fold's full validation set. Limits: the
+pseudo rows are the easy ones (little new information), and a 540-row fold gives only ~216 pseudo rows versus ~1,600 on
+the real test, so CV likely understates any gain. Needs train_exp.py --pseudo/--pseudo-frac (dataset versioned) and the
+runner's CODE:<file> argument resolver. Fold labels are never read to build the pseudo set.

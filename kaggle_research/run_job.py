@@ -13,10 +13,10 @@ import subprocess
 import sys
 import time
 
-EXP = "e011-dropout"  # experiment id, also printed in summary.json
+EXP = "e012-pseudo0.4"  # experiment id, also printed in summary.json
 JOBS = [  # (job name, extra args for train_exp.py); job i runs on GPU i
-    ("f0", ["--cv-fold", "0", "--init", "INIT:run2final", "--lr", "1e-4", "--head-lr", "1e-3", "--epochs", "2", "--lora-dropout", "0.15", "--head-dropout", "0.3"]),
-    ("f1", ["--cv-fold", "1", "--init", "INIT:run2final", "--lr", "1e-4", "--head-lr", "1e-3", "--epochs", "2", "--lora-dropout", "0.15", "--head-dropout", "0.3"]),
+    ("f0", ["--cv-fold","0","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--pseudo-frac","0.4","--pseudo","CODE:pseudo_e005e010_f0.npy"]),
+    ("f1", ["--cv-fold","1","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--pseudo-frac","0.4","--pseudo","CODE:pseudo_e005e010_f1.npy"]),
 ]
 COMMON = ["--arch", "ms", "--layers", "24", "--compute-dtype", "fp16", "--eval-n", "0", "--ckpt-every", "1000000",
           "--eval-every", "1000000"]
@@ -49,8 +49,9 @@ for f in glob.glob("/kaggle/input/**/*.parquet", recursive=True):
 link(os.path.dirname(find("config.json", "4b-base")), f"{W}/models/qwen3-4b-base")
 
 
-def resolve(args):  # INIT:<name> -> path of <name>__weights.pt in ntl-qwen-weights
-    return [find(f"{x[5:]}__weights.pt") if x.startswith("INIT:") else x for x in args]
+def resolve(args):  # INIT:<name> -> path of <name>__weights.pt in ntl-qwen-weights; CODE:<file> -> file in ntl-research-code
+    return [find(f"{x[5:]}__weights.pt") if x.startswith("INIT:") else find(x[5:]) if x.startswith("CODE:") else x
+            for x in args]
 
 
 procs = []

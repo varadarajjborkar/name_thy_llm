@@ -10,4 +10,5 @@ e006	2026-11-09	add 3000 hostlike rows to stage-2 train	init run2final, lr 1e-4,
 e007	2026-11-09	label smoothing 0.1	e005 config + --label-smoothing 0.1	0.563	0.5333			0.7269	0.563	0.5481	discard: -0.9 raw vs e005 (flat/worse)	0.37	3.57
 e008	2026-11-09	batch 16 (accum 2)	e005 config + --accum 2 (268 steps)	0.5537	0.5463			0.7102	0.563	0.55	discard: -0.7 raw vs e005 (flat)	0.44	4.01
 e009	2026-11-09	random-span crop augmentation	e005 config + --crop-min 0.6	0.5574	0.5278			0.7463	0.5583	0.5426	discard: -1.5 raw vs e005	0.39	4.4
-e010	2026-11-09	seed repeat of e005 (noise)	e005 config, --seed 7	0.5519	0.5444			0.725	0.5593	0.5481	noise estimate	0.42	4.82
+e010	2026-11-09	seed repeat of e005 (noise)	e005 config, --seed 7	0.5519	0.5444			0.725	0.5593	0.5481	noise estimate (seed repeat of e005)	0.42	4.82
+e011	2026-11-09	higher dropout	e005 config + --lora-dropout 0.15 --head-dropout 0.3	0.5574	0.537			0.7389	0.5769	0.5472	discard: flat (-1.0 vs e005, within seed noise), sinkhorn 0.577	0.4	5.22

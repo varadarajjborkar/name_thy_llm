@@ -79,6 +79,9 @@ ap.add_argument("--crop-min", type=float, default=0.0,
                 help="train-time augmentation: each passage is cut to a random contiguous span of [crop-min, 1] of its tokens (0 = off)")
 ap.add_argument("--lora-dropout", type=float, default=0.05)
 ap.add_argument("--head-dropout", type=float, default=0.1)
+ap.add_argument("--pseudo", default="", help=".npy of logits for the validation rows (val order), from an earlier run's outputs; the "
+                "most confident --pseudo-frac of them are added to the training rows with their argmax as label (no true labels used)")
+ap.add_argument("--pseudo-frac", type=float, default=0.4)
 ap.add_argument("--lockbox-fold", type=int, default=-1,
                 help="stage 1: drop this GroupKFold fold of --val from validation, so no decision ever looks at it")
 a = ap.parse_args()
@@ -124,6 +127,15 @@ else:  # stage 2 cross-validation: folds grouped by prompt so no topic is shared
     tr_rows, va_rows = folds[a.cv_fold]
     tr = val.iloc[tr_rows][["text", "model"]].reset_index(drop=True)
     val = val.iloc[va_rows].reset_index(drop=True)
+if a.pseudo:
+    pl = np.load(a.pseudo)
+    assert len(pl) == len(val), (len(pl), len(val))
+    pp = np.exp(pl - pl.max(1, keepdims=True))
+    pp /= pp.sum(1, keepdims=True)
+    sel = np.argsort(-pp.max(1))[: int(len(pl) * a.pseudo_frac)]
+    ps = pd.DataFrame({"text": val.text.to_numpy()[sel], "model": [classes[i] for i in pp.argmax(1)[sel]]})
+    tr = pd.concat([tr, ps], ignore_index=True)
+    print(f"pseudo-labelled {len(ps)} validation rows (labels not read)", flush=True)
 if a.extra:
     ex = pd.read_parquet(a.extra, columns=["text", "model"])
     if a.extra_n:
