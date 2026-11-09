@@ -73,18 +73,22 @@ def score(texts):
         ix = order[b:b + cli.bs]
         enc = tok([tok.bos_token + texts[i] if tok.bos_token else texts[i] for i in ix], return_tensors="pt",
                   padding=True, truncation=True, max_length=cli.maxlen).to(0)
-        logits = lm(**enc).logits  # bf16; full-vocab float32 only one passage at a time (8 GB card)
+        hid = lm.model(**enc).last_hidden_state  # vocab logits one passage at a time (8 GB card)
         tgt, m = enc.input_ids[:, 1:], enc.attention_mask[:, 1:].bool()
         for j, i in enumerate(ix):
-            lg = logits[j, :-1][m[j]].float()
+            lg = lm.lm_head(hid[j, :-1][m[j]]).float()
             tj = tgt[j][m[j]]
-            logp = torch.log_softmax(lg, -1)
-            a = logp.gather(-1, tj[:, None])[:, 0].cpu().numpy()
-            e = (-(logp.exp() * logp).sum(-1)).cpu().numpy()
+            lse = torch.logsumexp(lg, -1)  # entropy = lse - sum(p * logit): two vocab-size tensors, not four
+            a = (lg.gather(-1, tj[:, None])[:, 0] - lse).cpu().numpy()
+            e = (lse - (torch.softmax(lg, -1) * lg).sum(-1)).cpu().numpy()
             t = (lg.argmax(-1) == tj).float().cpu().numpy()
-            del lg, logp
+            del lg, lse
+            if len(a) < 2:  # empty or one-token passage: neutral row instead of a crash
+                a, e, t = np.zeros(2), np.zeros(2), np.zeros(2)
             h = max(len(a) // 2, 4)
             res[i] = summarise(a, e, t) + summarise(a[:h], e[:h], t[:h]) + [np.log(len(a))]
+        del hid
+        torch.cuda.empty_cache()
         if b % (cli.bs * 100) == 0:
             print(f"  {b}/{len(texts)} {time.time() - t0:.0f}s", flush=True)
     return pd.DataFrame(res, columns=NAMES + [f"h_{n}" for n in NAMES] + ["log_ntok"])

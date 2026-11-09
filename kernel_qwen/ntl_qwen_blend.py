@@ -148,6 +148,8 @@ if qwen_names:
                 m[r, :len(ids[i])] = 1
             out[b] = model(x.cuda(), m.cuda()).float().cpu().numpy()
         del model, base
+        import gc
+        gc.collect()  # peft / bitsandbytes modules can hold reference cycles; free before the next member loads
         torch.cuda.empty_cache()
         assert np.isfinite(out).all(), "non-finite Qwen logits"
         return out

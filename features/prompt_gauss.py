@@ -36,7 +36,7 @@ for k, (_, va) in enumerate(GroupKFold(5).split(train, train.model, train.prompt
     fold_of.update({i: k for i in train.id.iloc[va]})
 d = np.load(P / "blend_parts.npz", allow_pickle=True)
 ids, y = [str(i) for i in d["ids"]], d["y"]
-lp = log_softmax(0.8 * d["s2mix"] + 0.1 * d["svm"] + 0.1 * d["lgb"])
+lp = log_softmax(0.5 * d["s4"] + 0.3 * d["s2mix"] + 0.1 * d["svm"] + 0.1 * d["lgb"])  # shipped v6 blend
 tab = train.set_index("id").loc[ids]
 prompt, text = tab.prompt_id.to_numpy(), tab.text.fillna("").to_numpy()
 fold = np.array([fold_of[i] for i in ids])
@@ -70,16 +70,17 @@ class PromptGauss:
         Z = F @ self.W
         lp0 = np.zeros((len(F), K)) if prior is None else prior
         u = np.zeros_like(Z)
-        for _ in range(iters if groups is not None else 1):
-            ll = -0.5 * (((Z - u)[:, None, :] - self.m[None]) ** 2).sum(-1)
-            if groups is None:
-                break
+        ll = -0.5 * ((Z[:, None, :] - self.m[None]) ** 2).sum(-1)
+        if groups is None:
+            return ll
+        for _ in range(iters):
             q = np.exp(log_softmax(ll + lp0))
             r = Z - q @ self.m
             for g in np.unique(groups):
                 ix = groups == g
                 n = ix.sum()
                 u[ix] = r[ix].sum(0) * self.lam / (1 + n * self.lam) if n >= 2 else 0
+            ll = -0.5 * (((Z - u)[:, None, :] - self.m[None]) ** 2).sum(-1)  # with the newest shift estimate
         return ll
 
 
