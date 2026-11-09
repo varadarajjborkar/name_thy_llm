@@ -12,7 +12,9 @@ import subprocess
 import sys
 import time
 
-MODE = "smoke8b"  # smoke | real | smoke8b
+MODE = "real8b"  # smoke | real | smoke8b | real8b
+# 8B smoke (2026-11-09): 24 layers about 15 s/step at batch 32 on T4, 32 layers about 19 s/step, same accuracy
+# after 40 steps (0.204). Real runs keep 24 layers: 60k rows is about 8 h, inside the 12 h session limit.
 Q8 = ["--model", "/kaggle/working/proj/models/qwen3-8b-base"]
 # Smoke test result (2026-11-09): fp16 and bf16 reach the same accuracy (0.152 vs 0.151 after 40 steps),
 # fp16 is ~4x faster on T4 (no native bf16). Real runs use fp16.
@@ -26,6 +28,10 @@ JOBS = {
         ("k8_l24", "pool_typo_60k.parquet", Q8 + ["--compute-dtype", "fp16", "--n-train", "1280", "--layers", "24"]),
         ("k8_l32", "pool_typo_60k.parquet", Q8 + ["--compute-dtype", "fp16", "--n-train", "1280", "--layers", "32",
                                                   "--depths", "4,8,12,16,20,24,28,32"]),
+    ],
+    "real8b": [  # Qwen3-8B stage 1: same data as run2 (direct 4B vs 8B comparison), and pool + hostlike
+        ("k8a", "pool_typo_60k.parquet", Q8 + ["--compute-dtype", "fp16", "--layers", "24", "--eval-every", "250"]),
+        ("k8b", "pool_host1.parquet", Q8 + ["--compute-dtype", "fp16", "--layers", "24", "--eval-every", "250"]),
     ],
     "real": [  # data experiments against local run2 (pool only, same recipe and seed)
         ("k_host1", "pool_host1.parquet", ["--compute-dtype", "fp16", "--eval-every", "250"]),
