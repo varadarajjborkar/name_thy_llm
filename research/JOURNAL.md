@@ -124,3 +124,6 @@ Result: f0 raw 0.563 / sinkhorn 0.556, f1 0.533 / 0.570. Mean raw 0.548 vs 0.557
 Decision: discard (not better, within noise but on the wrong side). 22 min.
 Next: e008 effective batch 16 (accum 2, 268 steps instead of 134): the train loss at the end of stage 2 is still ~1.1,
 so more, smaller updates at the same lr may fit better without more epochs.
+
+### Main agent note (2026-11-09 07:05)
+Seed averaging (fold 2, stage 2 seeds 42 and 7): raw 0.5685 / 0.5796 -> avg 0.5833; sinkhorn flat. s2allb (seed 7 full fit) uploaded. Local run3 = stage 1 continued from run2final on 29,729 unseen pool rows (lr 5e-5), then stage 2 on folds 2,3 (s3f2, s3f3) to compare with s2f2/s2f3.
