@@ -13,10 +13,11 @@ import subprocess
 import sys
 import time
 
-EXP = "e012-pseudo0.4"  # experiment id, also printed in summary.json
+EXP = "e013-regen-leaksafe"  # experiment id, also printed in summary.json
+# train_regen re-answers of the host prompts, minus the scored fold's prompts (built by the main agent)
 JOBS = [  # (job name, extra args for train_exp.py); job i runs on GPU i
-    ("f0", ["--cv-fold","0","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--pseudo-frac","0.4","--pseudo","CODE:pseudo_e005e010_f0.npy"]),
-    ("f1", ["--cv-fold","1","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--pseudo-frac","0.4","--pseudo","CODE:pseudo_e005e010_f1.npy"]),
+    ("f0", ["--cv-fold","0","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--extra","CODE:regen_excl_f0.parquet"]),
+    ("f1", ["--cv-fold","1","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--extra","CODE:regen_excl_f1.parquet"]),
 ]
 COMMON = ["--arch", "ms", "--layers", "24", "--compute-dtype", "fp16", "--eval-n", "0", "--ckpt-every", "1000000",
           "--eval-every", "1000000"]
