@@ -1,3 +1,9 @@
 exp	date	idea	config	f0	f1	f2	f3	mean_grouped	mean_sinkhorn	mean_raw	decision	gpu_h	gpu_h_total
 e000	2026-11-09	smoke: pipeline proof	init run2, 64 rows, 1 epoch, folds 0,1 (not a result)	0.4185	0.3556			0.5713	0.4269	0.387	n/a smoke	0.07	0.07
 e001	2026-11-09	stage-2 baseline	init run2s1000, lr 5e-5, head-lr 5e-4, 2 epochs, ~2160 rows/fold, fp16, bs8x4, maxlen 320	0.5278	0.5333			0.7148	0.5333	0.5306	baseline (current best)	0.42	0.49
+e001c	2026-11-09	control: stage-1 weights, zero updates	init run2s1000, --n-train 8 (0 optimizer steps), same folds	0.4611	0.4574			0.6574	0.5	0.4593	reference: stage 2 gain	0.04	0.53
+e002	2026-11-09	lr 1e-4 / head 1e-3	init run2s1000, lr 1e-4, head-lr 1e-3, 2 epochs, rest as e001	0.5407	0.537			0.7231	0.5657	0.5389	best so far, +0.8 over e001 (below the 1.0 keep rule)	0.44	0.97
+e003	2026-11-09	lr 2e-4 / head 2e-3	init run2s1000, lr 2e-4, head-lr 2e-3, 2 epochs, eval-every 67 (epoch snapshots)	0.5111	0.5204			0.7093	0.5491	0.5157	discard: -2.3 raw vs e002	0.44	1.41
+e004	2026-11-09	epochs 3 at lr 1e-4	init run2s1000, lr 1e-4, head-lr 1e-3, 3 epochs (201 steps), eval-every 67	0.5278	0.5333			0.7222	0.5472	0.5306	discard: flat vs e002 (-0.8), 30% more time	0.55	1.96
+e005	2026-11-09	e002 config on run2final init	init run2final, lr 1e-4, head-lr 1e-3, 2 epochs	0.5667	0.5481			0.738	0.5722	0.5574	NEW BASELINE (raw 0.557, +1.9 over e002 with run2s1000)	0.42	2.38
+e006	2026-11-09	add 3000 hostlike rows to stage-2 train	init run2final, lr 1e-4, head-lr 1e-3, 2 epochs, --extra hostlike.parquet --extra-n 3000 (~5.1k rows/fold)	0.5352	0.5204			0.7046	0.5389	0.5278	discard: -2.9 raw vs e005, 2x time	0.82	3.2

@@ -7,3 +7,5 @@ issues.db
 .venv/
 models/
 checkpoints/
+research/GPU_HOLD
+research/GPU_SLOT_FREE
