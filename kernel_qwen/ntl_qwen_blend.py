@@ -26,7 +26,9 @@ ROOT = os.environ.get("NTL_ROOT", "/kaggle/input")
 # Now (research/fit_blend_multi.py, folds 0-3 OOF, 2,160 rows): three stage-2 full fits from different stage-1
 # starts (run2, run3 = run2 continued on unseen pool rows, k_host3 = pool + hostlike x3), equal weights 0.8 in
 # total + SVM 0.1 + LGBM 0.1 -> raw 0.589, sinkhorn 0.591. Stage 1 adds nothing on top.
-WEIGHTS = {"qwen:s2all": (0.8 / 3, 1.0), "qwen:s3all": (0.8 / 3, 1.0), "qwen:h3s2all": (0.8 / 3, 1.0),
+# v6: + s4all (stage 2 from run4, stage 1 on 92k pool rows). Fold 0 with centering + partial sinkhorn: old blend
+# 0.639, s4 weight 0.5 (old families 0.1 each) 0.663; s4 alone on fold 0 0.617 vs 0.567 / 0.567 / 0.559.
+WEIGHTS = {"qwen:s4all": (0.5, 1.0), "qwen:s2all": (0.1, 1.0), "qwen:s3all": (0.1, 1.0), "qwen:h3s2all": (0.1, 1.0),
            "svm": (0.1, 3.0), "lgbm": (0.1, 1.0)}
 SINKHORN = True
 SINK_ALPHA = 0.45  # LB history: full sinkhorn + centering w0.5 = 0.572 (v5)
