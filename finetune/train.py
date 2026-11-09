@@ -391,9 +391,14 @@ while step < total_steps:
         bad = not torch.isfinite(loss)
         recent_bad = (recent_bad + [bad])[-400:]  # abort only on a sustained overflow rate, not a total count
         if bad:
+            del loss  # free this micro-batch's graph before the next one (peak memory)
             if len(recent_bad) >= 100 and sum(recent_bad) > 0.25 * len(recent_bad):
-                save_ckpt(step, best)
-                P(f"over 25% of the last {len(recent_bad)} micro-batches non-finite: state saved, aborting")
+                if all(torch.isfinite(p_).all() for _, p_ in named):  # never overwrite good checkpoints with NaN
+                    save_ckpt(step, best)
+                    P(f"over 25% of the last {len(recent_bad)} micro-batches non-finite: state saved, aborting")
+                else:
+                    P(f"over 25% of the last {len(recent_bad)} micro-batches non-finite and weights not finite: "
+                      "aborting WITHOUT saving (the existing checkpoints are kept)")
                 sys.exit(3)
             continue
         scaler.scale(loss / a.accum).backward()
@@ -406,7 +411,9 @@ while step < total_steps:
         scaler.update()
     opt.zero_grad(set_to_none=True)
     step += 1
-    ema = tot if ema is None else 0.98 * ema + 0.02 * tot
+    if n_back:  # mean over the micro-batches that ran; an all-skipped step does not move the loss average
+        tot *= a.accum / n_back
+        ema = tot if ema is None else 0.98 * ema + 0.02 * tot
 
     if step % 20 == 0:
         done = step - step0
