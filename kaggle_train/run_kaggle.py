@@ -103,3 +103,12 @@ for run, p in procs:
         print(f"{run}: kept ckpt_latest/ckpt_prev for a resume", flush=True)
     tail = open(f"{W}/checkpoints/{run}/console.log").read().splitlines()[-15:]
     print("\n".join(tail), flush=True)
+
+# Remove the input links (base models ~8 GB / ~16 GB, data) so the saved output holds only our checkpoints:
+# a symlinked model can be copied into /kaggle/working's output and break the 20 GB output limit.
+for p_ in glob.glob(f"{W}/models/*") + glob.glob(f"{W}/data/**/*", recursive=True):
+    if os.path.islink(p_):
+        os.unlink(p_)
+for d in ("data/processed", "data", "models"):  # the generated pool_host parquets are inputs too
+    shutil.rmtree(f"{W}/{d}", ignore_errors=True)
+print("input links and data removed from the output folder", flush=True)
