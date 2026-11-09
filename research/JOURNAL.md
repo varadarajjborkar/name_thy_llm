@@ -252,3 +252,17 @@ DROP: +0.3 to +0.6 only when groups are complete, zero on partial groups; plain 
 
 ### run4 stage 2 and notebook v6 (main agent, 2026-11-09 20:20)
 run4 (stage 1 continued on 92k pool rows) final 0.568 vs run2/run3/k_host3 0.521/0.527/0.530. Stage 2 from run4 (s4ff0-3): 0.617/0.552/0.626/0.594, family raw 0.597 vs s2/s3/h3 0.566/0.573/0.572. With centering w0.5 + partial sinkhorn 0.45 over folds 0-3: v5 blend 0.6306; s4 weight 0.2/0.4/0.5/0.6/0.8 (old families share 0.8 - w) 0.6375/0.6417/0.6394/0.6403/0.6412: a flat plateau from 0.4 to 0.8, about +1 pt. Fold 0 alone had suggested +2.4 (0.639 -> 0.663); the 4-fold number is the one to trust. v6 submitted at 0.5 / 0.1 x 3 / SVM 0.1 / LGBM 0.1, partial sinkhorn 0.45.
+
+### Forum read, critically (main agent, 2026-11-09 21:30)
+Read 16 threads via Kaggle's internal API (the page itself is JavaScript-only). Facts (host or competition API):
+- Public LB = 40% of the hidden test (~1,600 rows), private = 60%. The mix of models differs between public and private (Overview), so class balance is not uniform: keep Sinkhorn partial, not full.
+- Host: using relationships between test passages (clustering, pseudo-labels) is allowed. Self-generated data within reasonable cost (well under the $5k prize) is allowed and need not be public; the Benchmarks proxy is not meant for training data. Public Kaggle datasets and public LoRA weights are fine.
+- Test prompts do not all have 18 answers (Overview), consistent with our 0.367 group-assignment probe.
+Participant claims worth testing (not accepted at face value):
+- Open Pool v14 (223,840 rows) drops 284 mislabelled rows and adds gen_reasoning: only kimi-k3 rows with reasoning "high" look like the real kimi-k3 (25% vs 8-11% recognised by a train-only TF-IDF yardstick; within-source control supports it). Check our kimi-k3 recall and pool version before the next stage 1.
+- Public notebooks score 0.65-0.66 with Qwen3-14B / Qwen3-8B / Llama-8B two-stage LoRA24 + a prompt-centred "twin" head trained on batches of same-prompt triplets (removal costs 0.006-0.017 LB), a Gaussian head, ATLAS (worth -0.009 on one base, +0.001 on another), n-gram SVC, Sinkhorn 0.30-0.45 better than 0.60 (+0.003). Training-time prompt centring is the idea we have not tried; our post-hoc centring gave +1.7.
+- Stage 2 there uses lr 5e-5 / head 5e-4 (ours 1e-4 / 1e-3) and class-weighted stage 1.
+- Member diversity: a member retrained on the same pool with higher OOF scored lower on LB (0.651 -> 0.647); a different data mix adds more than OOF suggests.
+- fp16 on T4 with a growing LoRA can overflow, skipped batches cost 0.10 OOF in one report: check our Kaggle 8B run's skipped-batch count. Kaggle TPU v5e-8 reported 14x faster than 2xT4 for Qwen3-8B LoRA in bf16, but queue waits up to ~23 h.
+- Base-LM likelihood features (GLM-4-9B, Qwen3-8B) reported -0.002 in one grouped-CV stack: low prior for ATLAS.
+- Noise of a difference of two public scores: sd ~ sqrt(f / n_public), f = share of rows where exactly one is right; for f 10-20% and 1,600 rows, 0.008-0.011.
