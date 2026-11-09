@@ -117,3 +117,10 @@ Next: e007 label smoothing 0.1, e008 batch 16 (more optimizer steps), then a see
 
 ### Main agent note (2026-11-09 06:55)
 LB: stage-2 blend (s2all 0.6 + s1 0.2 + svm 0.1 + lgbm 0.1, sinkhorn) = **0.550** (OOF 0.580). Stage 2 transfers to the hidden test; CV-to-LB gap about -0.03.
+
+### e007 label smoothing 0.1 (2026-11-09)
+What: e005 config with --label-smoothing 0.1. Why: queue idea 6; guards against overconfident logits on easy classes.
+Result: f0 raw 0.563 / sinkhorn 0.556, f1 0.533 / 0.570. Mean raw 0.548 vs 0.557 (-0.9), sinkhorn 0.563 vs 0.572.
+Decision: discard (not better, within noise but on the wrong side). 22 min.
+Next: e008 effective batch 16 (accum 2, 268 steps instead of 134): the train loss at the end of stage 2 is still ~1.1,
+so more, smaller updates at the same lr may fit better without more epochs.
