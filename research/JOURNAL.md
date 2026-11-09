@@ -114,3 +114,6 @@ Offline ensembles (CPU, log-softmax averages on the same folds): e005 alone 0.55
 e005+e006 0.560; e005+e002+e004 0.549. No ensemble of stage-2 runs from this recipe gains >= 1 point, so checkpoint /
 config averaging is not worth GPU time here. The plateau around 0.55 seems robust to lr, epochs, init mix and ensembling.
 Next: e007 label smoothing 0.1, e008 batch 16 (more optimizer steps), then a seed repeat of the best to measure noise.
+
+### Main agent note (2026-11-09 06:55)
+LB: stage-2 blend (s2all 0.6 + s1 0.2 + svm 0.1 + lgbm 0.1, sinkhorn) = **0.550** (OOF 0.580). Stage 2 transfers to the hidden test; CV-to-LB gap about -0.03.
