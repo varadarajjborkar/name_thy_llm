@@ -75,6 +75,10 @@ ap.add_argument("--compute-dtype", choices=["bf16", "fp16"], default="bf16",
                 help="fp16 for GPUs without native bf16 (Kaggle T4/P100); uses loss scaling")
 ap.add_argument("--extra", default="", help="parquet (text, model) appended to the stage-2 training rows (never to validation)")
 ap.add_argument("--extra-n", type=int, default=0, help="use a random sample of N extra rows (0 = all)")
+ap.add_argument("--crop-min", type=float, default=0.0,
+                help="train-time augmentation: each passage is cut to a random contiguous span of [crop-min, 1] of its tokens (0 = off)")
+ap.add_argument("--lora-dropout", type=float, default=0.05)
+ap.add_argument("--head-dropout", type=float, default=0.1)
 ap.add_argument("--lockbox-fold", type=int, default=-1,
                 help="stage 1: drop this GroupKFold fold of --val from validation, so no decision ever looks at it")
 a = ap.parse_args()
@@ -175,8 +179,18 @@ total_steps = steps_per_epoch * a.epochs
 P(f"plan: {steps_per_epoch} steps/epoch x {a.epochs} = {total_steps} optimizer steps, effective batch {a.bs * a.accum}")
 
 
-def collate(ids_list, idx):
+def crop(s, rng):
+    if a.crop_min <= 0 or len(s) < 48:
+        return s
+    n = int(len(s) * rng.uniform(a.crop_min, 1.0))
+    st = int(rng.integers(0, len(s) - n + 1))
+    return s[st:st + n]
+
+
+def collate(ids_list, idx, rng=None):
     seqs = [ids_list[i] for i in idx]
+    if rng is not None:
+        seqs = [crop(s, rng) for s in seqs]
     L = max(len(s) for s in seqs)
     x = torch.full((len(seqs), L), PAD, dtype=torch.long)
     m = torch.zeros((len(seqs), L), dtype=torch.long)
@@ -195,6 +209,9 @@ torch.manual_seed(a.seed)
 LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
 
+HEAD_DROPOUT = a.head_dropout
+
+
 class MultiScale(torch.nn.Module):
     """Mean-pooled hidden states at several depths -> LayerNorm each -> concat -> dropout -> linear."""
 
@@ -202,7 +219,7 @@ class MultiScale(torch.nn.Module):
         super().__init__()
         self.base, self.depths = base, depths
         self.norms = torch.nn.ModuleList([torch.nn.LayerNorm(hidden) for _ in depths])
-        self.drop = torch.nn.Dropout(0.1)
+        self.drop = torch.nn.Dropout(HEAD_DROPOUT)
         self.head = torch.nn.Linear(hidden * len(depths), n_classes)
 
     def forward(self, input_ids, attention_mask):
@@ -218,7 +235,7 @@ if a.arch == "seqcls":
         MODEL, num_labels=len(classes), quantization_config=bnb, dtype=CDT, device_map={"": 0})
     model.config.pad_token_id = PAD
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
-    model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.05,
+    model = get_peft_model(model, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=a.lora_dropout,
                                              task_type="SEQ_CLS", target_modules=LORA_TARGETS))
 else:
     cfg = AutoConfig.from_pretrained(MODEL)
@@ -232,7 +249,7 @@ else:
                                      device_map={"": 0})
     base.norm = torch.nn.Identity()  # the deepest pooled layer is read raw, like the shallower ones
     base = prepare_model_for_kbit_training(base, use_gradient_checkpointing=True)
-    base = get_peft_model(base, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.05,
+    base = get_peft_model(base, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=a.lora_dropout,
                                            target_modules=LORA_TARGETS))
     model = MultiScale(base, depths, cfg.hidden_size, len(classes)).cuda()
     P(f"multi-scale: {n_layers} layers, pooling depths {depths}")
@@ -387,7 +404,7 @@ while step < total_steps:
     tot = 0.0
     for j in range(a.accum):
         idx = plan[first_micro + j]
-        x, m = collate(tr_ids, idx)
+        x, m = collate(tr_ids, idx, np.random.default_rng((a.seed, step, j)))
         y = torch.tensor(tr_y[idx], device="cuda")
         loss = torch.nn.functional.cross_entropy(logits_of(x, m).float(), y, label_smoothing=a.label_smoothing)
         if not torch.isfinite(loss):

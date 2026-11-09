@@ -127,3 +127,12 @@ so more, smaller updates at the same lr may fit better without more epochs.
 
 ### Main agent note (2026-11-09 07:05)
 Seed averaging (fold 2, stage 2 seeds 42 and 7): raw 0.5685 / 0.5796 -> avg 0.5833; sinkhorn flat. s2allb (seed 7 full fit) uploaded. Local run3 = stage 1 continued from run2final on 29,729 unseen pool rows (lr 5e-5), then stage 2 on folds 2,3 (s3f2, s3f3) to compare with s2f2/s2f3.
+
+### e008 batch 16 (accum 2) (2026-11-09)
+What: e005 config with --accum 2 (effective batch 16, 268 steps). Result: f0 raw 0.554 / sinkhorn 0.565, f1 0.546 / 0.561.
+Mean raw 0.550 vs 0.557 (-0.7), sinkhorn 0.563. 26 min. Decision: discard (flat).
+Reading so far (e002..e008, init run2final or s1000): lr 5e-5..1e-4, 2-3 epochs, batch 16/32, label smoothing, ensembles
+and extra hostlike all land at 0.53-0.56 raw on folds 0+1; only the init (run2final vs s1000, +1.8) and a bad lr (2e-4)
+or off-distribution data (hostlike, -2.9) moved the number. Optimisation tweaks are exhausted, so the next ideas
+target regularisation / data: e009 random-span crop augmentation (--crop-min 0.6), e010 higher LoRA/head dropout.
+Both need new train_exp.py options (--crop-min, --lora-dropout, --head-dropout; defaults reproduce the old behaviour).

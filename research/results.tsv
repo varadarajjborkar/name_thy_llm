@@ -8,3 +8,4 @@ e004	2026-11-09	epochs 3 at lr 1e-4	init run2s1000, lr 1e-4, head-lr 1e-3, 3 epo
 e005	2026-11-09	e002 config on run2final init	init run2final, lr 1e-4, head-lr 1e-3, 2 epochs	0.5667	0.5481			0.738	0.5722	0.5574	NEW BASELINE (raw 0.557, +1.9 over e002 with run2s1000)	0.42	2.38
 e006	2026-11-09	add 3000 hostlike rows to stage-2 train	init run2final, lr 1e-4, head-lr 1e-3, 2 epochs, --extra hostlike.parquet --extra-n 3000 (~5.1k rows/fold)	0.5352	0.5204			0.7046	0.5389	0.5278	discard: -2.9 raw vs e005, 2x time	0.82	3.2
 e007	2026-11-09	label smoothing 0.1	e005 config + --label-smoothing 0.1	0.563	0.5333			0.7269	0.563	0.5481	discard: -0.9 raw vs e005 (flat/worse)	0.37	3.57
+e008	2026-11-09	batch 16 (accum 2)	e005 config + --accum 2 (268 steps)	0.5537	0.5463			0.7102	0.563	0.55	discard: -0.7 raw vs e005 (flat)	0.44	4.01
