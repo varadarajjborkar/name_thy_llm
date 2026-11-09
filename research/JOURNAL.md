@@ -90,3 +90,12 @@ raw comes from (a prior fix, not new information).
 
 ### Main agent note (2026-11-09 05:20)
 LB: Qwen run2 (final+s1700) 0.8 + SVM 0.1 + LGBM 0.1: argmax 0.520, sinkhorn 0.521 (OOF 0.543 / 0.546). CV maps to LB at about -0.02; sinkhorn neutral on LB. Main agent runs the e002 config (lr 1e-4/1e-3, 2 epochs, init run2final) locally on folds 2 and 3 (runs s2f2, s2f3) and a full fit s2all, to complete OOF with e005 folds 0-1.
+
+### e005 e002 config on run2final init (2026-11-09)
+What: lr 1e-4 / head 1e-3, 2 epochs, init `run2final` (stage 1 finished, 1,875 steps), folds 0 and 1. Why: it is the init
+that ships (queue idea 7); re-run of an earlier config is justified by the changed init.
+Result: f0 raw 0.567 / sinkhorn 0.570, f1 0.548 / 0.574. Mean raw 0.557 (same config on run2s1000: 0.539, +1.8),
+sinkhorn 0.572. 25 min.
+Decision: new baseline for all further tests: init run2final, lr 1e-4 / 1e-3, 2 epochs, raw 0.557 on folds 0+1.
+Next: e006 adds 3,000 random hostlike rows to the stage-2 training set (queue idea 5; the full 6,897 rows would make
+a session ~90 min, 3,000 gives ~50 min and tests the direction).
