@@ -249,3 +249,6 @@ Two-way model x = class mean + prompt shift + noise, S and T diagonalised togeth
 - full groups: baseline 0.6306; + 0.2 x Gaussian on blend log-probs 0.6338; + 0.2 x Gaussian on frozen run3 PCA-128 0.6366 (alone 0.597 / 0.515).
 - partial groups (2-10 per prompt): baseline 0.6016; + Gaussian 0.6012 / 0.6000.
 DROP: +0.3 to +0.6 only when groups are complete, zero on partial groups; plain centering already captures the shared prompt shift.
+
+### run4 stage 2 and notebook v6 (main agent, 2026-11-09 20:20)
+run4 (stage 1 continued on 92k pool rows) final 0.568 vs run2/run3/k_host3 0.521/0.527/0.530. Stage 2 from run4 (s4ff0-3): 0.617/0.552/0.626/0.594, family raw 0.597 vs s2/s3/h3 0.566/0.573/0.572. With centering w0.5 + partial sinkhorn 0.45 over folds 0-3: v5 blend 0.6306; s4 weight 0.2/0.4/0.5/0.6/0.8 (old families share 0.8 - w) 0.6375/0.6417/0.6394/0.6403/0.6412: a flat plateau from 0.4 to 0.8, about +1 pt. Fold 0 alone had suggested +2.4 (0.639 -> 0.663); the 4-fold number is the one to trust. v6 submitted at 0.5 / 0.1 x 3 / SVM 0.1 / LGBM 0.1, partial sinkhorn 0.45.
