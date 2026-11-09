@@ -187,7 +187,10 @@ def check_dashboard(st, al):
         st["dash_fail"] = st.get("dash_fail", 0) + 1
     if st["dash_fail"] == 2:  # two passes in a row (about 6 minutes): restart once
         code, out = wmi_start(f'"{PYW}" "{ROOT / "dashboard/server.py"}" --no-browser')
-        event("FIXED", "dashboard", f"not answering for 2 checks: restarted on port 8765 (WMI result {out.strip()})")
+        if out.strip().endswith("0"):
+            event("FIXED", "dashboard", "not answering for 2 checks: restart launched (the next pass confirms it)")
+        else:
+            al.raise_("dashboard", "dashboard", f"restart could not be launched: {out.strip()[-120:]}")
     elif st["dash_fail"] >= 4:
         al.raise_("dashboard", "dashboard", "still down after a restart")
 
@@ -198,8 +201,8 @@ def clear_job(al, name):
 
 
 def check_jobs(st, al):
-    finished = []
-    for name, j in load(JOBS, {}).items():
+    finished, jobs_now = [], load(JOBS, {})
+    for name, j in jobs_now.items():
         log = Path(j["log"])
         if not log.is_absolute():
             log = ROOT / log
@@ -211,12 +214,20 @@ def check_jobs(st, al):
         try:  # only what the job wrote after it was registered (a reused log's old text does not count)
             with open(log, "rb") as f:
                 size = f.seek(0, 2)
-                start = j.get("offset", 0) if size >= j.get("offset", 0) else 0
+                start = j.get("offset", 0)
+                if size < j.get("last_size", size) or size < start:
+                    start = 0  # the log was truncated and rewritten since the last pass: read it all
+                j["last_size"] = size
                 f.seek(max(start, size - 200_000))
                 tail = f.read().decode("utf-8", errors="replace")
         except Exception:
             continue
-        if re.search(j["done"], tail):
+        try:
+            done = bool(re.search(j.get("done") or r"(?!x)x", tail))
+        except re.error as e:
+            al.raise_(f"job:{name}", f"job {name}", f"invalid done regex {j.get('done')!r}: {e}")
+            continue
+        if done:
             event("DONE", f"job {name}", f"finished ({log.name})")
             finished.append(name)
             clear_job(al, name)
@@ -231,11 +242,13 @@ def check_jobs(st, al):
             al.raise_(f"jobstale:{name}", f"job {name}", f"log silent {quiet / 60:.0f} min ({log.name})")
         else:
             al.clear(f"jobstale:{name}")
-    if finished:  # re-read so a job registered during this pass is kept
-        jobs = load(JOBS, {})
-        for n in finished:
-            jobs.pop(n, None)
-        save(JOBS, jobs)
+    jobs = load(JOBS, {})  # re-read so a job registered during this pass is kept
+    for n in finished:
+        jobs.pop(n, None)
+    for n, j in jobs_now.items():
+        if n in jobs and "last_size" in j and jobs[n].get("registered") == j.get("registered"):
+            jobs[n]["last_size"] = j["last_size"]
+    save(JOBS, jobs)
 
 
 def check_kaggle(st, al):
@@ -312,18 +325,26 @@ def check_machine(al):
 
 
 def one_pass():
+    me = str(os.getpid())
     try:  # one pass at a time (Task Scheduler and a manual loop may overlap); a lock older than 10 min is stale
-        if LOCK.exists() and time.time() - LOCK.stat().st_mtime > 600:
-            LOCK.unlink()
+        try:
+            if time.time() - LOCK.stat().st_mtime > 600:
+                LOCK.unlink()
+        except OSError:
+            pass
         fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(fd, str(os.getpid()).encode())
+        os.write(fd, me.encode())
         os.close(fd)
-    except FileExistsError:
+    except OSError:  # held by another pass (or delete-pending): skip this one
         return
     try:
         _pass()
     finally:
-        LOCK.unlink(missing_ok=True)
+        try:
+            if LOCK.read_text().strip() == me:  # never delete a newer pass's lock
+                LOCK.unlink()
+        except OSError:
+            pass
 
 
 def _pass():
