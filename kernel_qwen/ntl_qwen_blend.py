@@ -29,7 +29,8 @@ ROOT = os.environ.get("NTL_ROOT", "/kaggle/input")
 # v6: + s4all (stage 2 from run4, stage 1 on 92k pool rows). Fold 0 with centering + partial sinkhorn: old blend
 # 0.639, s4 weight 0.5 (old families 0.1 each) 0.663; s4 alone on fold 0 0.617 vs 0.567 / 0.567 / 0.559.
 WEIGHTS = {"qwen:s4all": (0.5, 1.0), "qwen:s2all": (0.1, 1.0), "qwen:s3all": (0.1, 1.0), "qwen:h3s2all": (0.1, 1.0),
-           "svm": (0.1, 3.0), "lgbm": (0.1, 1.0)}
+           "svm": (0.1, 3.0), "lgbm": (0.1, 1.0),
+           "atlas": (0.15, 1.0)}  # v7: on top of the v6 weights (they sum to 1), as evaluated out of fold
 SINKHORN = True
 SINK_ALPHA = 0.45  # LB history: full sinkhorn + centering w0.5 = 0.572 (v5)
 PARITY = False  # True only for pipeline checks; never in a submission
@@ -75,7 +76,7 @@ if PARITY:  # pipeline check: score 900 train rows outside the lockbox fold with
     rest = train.drop(index=train.index[lock])
     test = rest.groupby("model").sample(n=50, random_state=0).reset_index(drop=True)
     test_text = test.text.fillna("").astype(str).values
-    WEIGHTS = {k: v for k, v in WEIGHTS.items() if k != "svm"}  # the SVM is fit on these very rows
+    WEIGHTS = {k: v for k, v in WEIGHTS.items() if k not in ("svm", "atlas")}  # both are fit on these very rows
 P("train", train.shape, "test", test.shape)
 members = {}
 
@@ -206,6 +207,30 @@ if "lgbm" in WEIGHTS:
     Xs = pd.DataFrame(np.asarray([extract(t) for t in test_text], dtype=np.float32), columns=NAMES)
     members["lgbm"] = np.log(np.clip(booster.predict(Xs, num_iteration=booster.best_iteration or None), 1e-9, 1))
     P("lightgbm done")
+
+# ---------------------------------------------------------------- ATLAS: how each passage looks to the plain base LM
+# Per-token log-prob / entropy / top-1 statistics under Qwen3-4B base (4-bit, fp16), then 5 class-balanced LightGBM
+# seeds trained on all train.csv rows + 2,950 pool rows (features/atlas_fit.py). OOF folds 0-3, seed-averaged:
+# + 0.15 x ATLAS on the v6 blend = +1.08 (every fold up). The feature code is the same module used for training.
+if "atlas" in WEIGHTS:
+    import lightgbm as lgb
+    import torch
+    sys.path.insert(0, os.path.dirname(find("atlas_feats.py")))
+    from atlas_feats import load_lm, score  # noqa: E402
+
+    meta = json.load(open(find("atlas_meta.json")))
+    assert meta["classes"] == classes, "ATLAS class order differs"
+    tok_a, lm_a = load_lm(os.path.dirname(find("config.json", "4b-base")), torch.float16)
+    Fa = score(list(test_text), tok_a, lm_a, 4, meta["maxlen"], log=P)
+    del lm_a
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+    Xa = Fa[meta["cols"]].to_numpy()
+    assert np.isfinite(Xa).all(), "non-finite ATLAS features"
+    pa = np.mean([lgb.Booster(model_file=find(f"atlas_lgb_s{s}.txt")).predict(Xa) for s in range(meta["seeds"])], 0)
+    members["atlas"] = np.log(np.clip(pa, 1e-9, 1))
+    P("atlas done")
 
 # ---------------------------------------------------------------- blend + write
 blend = sum(w * log_softmax(T * members[k]) for k, (w, T) in WEIGHTS.items())
