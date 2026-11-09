@@ -61,7 +61,7 @@ def specialist_probs(dims, k, members):
     sc = StandardScaler().fit(X)
     pca = PCA(n_components=dims, random_state=0).fit(sc.transform(X))
     Z = pca.transform(sc.transform(X))
-    clf = LogisticRegression(C=1.0, max_iter=2000).fit(Z, yy, sample_weight=w)
+    clf = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced").fit(Z, yy, sample_weight=w)
     order = [list(clf.classes_).index(m) for m in members]
     va = hfold == k
     return va, clf.predict_proba(pca.transform(sc.transform(hX[va])))[:, order]
