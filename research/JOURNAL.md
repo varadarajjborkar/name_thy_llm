@@ -178,3 +178,42 @@ runner's CODE:<file> argument resolver. Fold labels are never read to build the 
 
 ### Main agent note (2026-11-09 08:55)
 Kaggle stage-1 data runs (full val 2,160 rows): run2 (pool) 0.521, k_host1 (pool+hostlike) 0.528, k_host3 (pool+hostlike x3) 0.530. Stage-1 ensembles: run2+kh3 raw 0.541 / sinkhorn 0.554. Uploaded as kh1final, kh3final. Main agent runs stage 2 from kh3final (folds 0-3 + full fit) in kernel ntl-s2-main (main agent slot); research agent should not duplicate this.
+
+### e012 pseudo-labelling (2026-11-09)
+What: e005 recipe plus 216 pseudo-labelled rows (top 40% by confidence of the e005+e010 average on the fold's own
+validation rows, argmax labels, no true labels read), 2 epochs. Result: f0 raw 0.552 / sinkhorn 0.550, f1 0.537 / 0.557.
+Mean raw 0.544 vs 0.553 (mean of the two e005-recipe seeds). 27 min. Decision: discard; no gain at this scale. It is
+untested at the real scale (~1,600 pseudo rows on the 4,000-row test) and the selected rows are the ones the model
+already gets right, so I do not expect it to help, but CV cannot show that.
+
+## Handoff (gen 1)
+Budget used: 5.67 of 14 GPU hours (13 sessions). Nothing is running. Last push: e012 (finished and logged).
+**Best config (baseline for shipping):** stage 2 from `run2final`, lr 1e-4 body / 1e-3 head, 2 epochs, bs 8 x accum 4
+(eff. 32), warmup 0.03, maxlen 320, eval maxlen 384, fp16, otherwise train.py defaults. Folds 0+1 raw balanced accuracy
+0.557 (seed 42, e005) and 0.548 (seed 7, e010): mean 0.553; sinkhorn 0.572 / 0.561. Stage 1 alone on the same folds
+(run2s1000, zero updates) scores raw 0.459, so stage 2 adds about +7 points, and `run2final` as init adds about +1.8 over
+`run2s1000`.
+**Table (raw, folds 0+1 mean):** e001 s1000 baseline 5e-5 0.531 | e002 lr 1e-4 0.539 | e003 lr 2e-4 0.516 | e004 3 epochs
+0.531 | e005 run2final lr 1e-4 0.557 | e006 +3k hostlike 0.528 | e007 label smoothing 0.548 | e008 batch 16 0.550 |
+e009 crop aug 0.543 | e010 seed repeat 0.548 | e011 dropout 0.547 | e012 pseudo-labels 0.544.
+**Findings:** (1) the seed noise of a two-fold mean is about +-1 point, so everything between 0.543 and 0.557 on run2final
+is indistinguishable; the stage-2 hyper-parameter space around the public recipe is flat. (2) Clear negatives: lr 2e-4,
+hostlike rows added to stage 2 (-2.9, so off-distribution text hurts stage 2). (3) Ensembling stage-2 runs adds little:
+two seeds +0.5, mixed configs 0 to +0.3 (logit averages computed offline from research/runs/*). (4) After stage 2,
+sinkhorn adds only ~+1 on average (vs +4 on stage-1 weights): stage 2 already fixes most of the class-prior skew;
+residual errors are sibling models (gemini-3.7-flash vs 3.6/3.8, glm-5.3 vs flash, gpt-5.6 sol/luna/terra).
+claude-fable-5 has recall 0.13 and gemini-3.7-flash 0.23 (e002 pooled folds).
+**Recommendation to the main agent:** ship the e005 recipe from run2final; fit it on all of train.csv (cv-fold -2) and, if
+time allows, average 2-3 seeds (about +0.5, cheap) rather than tuning further. The big levers are upstream of stage 2:
+a better stage 1 (more or more host-faithful pool data; run2 val was flat while train loss fell) and more real host
+rows. I did not test `train_regen_norm.parquet` (leakage rule); it is the one untested data source that could add real
+host-style rows, but it can only be evaluated by a protocol that excludes the validation prompts, which I did not build.
+**What I would try next if continuing:** (a) stage 2 starting from the k_host1/k_host3 stage-1 weights when they exist,
+same recipe, to see if host-faithful stage 1 beats run2final; (b) stage 2 with train_regen_norm rows after removing the
+rows of each fold's validation prompts (requires prompt ids in that file); (c) folds 2+3 only matter if a candidate
+appears; none did, so I did not spend GPU on them.
+**Open doubts:** folds 0+1 are 1,080 rows total; every number has +-1 noise. Fold 4 (lockbox) was never touched. All
+`grouped*` columns in results.tsv were ignored for decisions. train_exp.py gained options --extra/--extra-n, --crop-min,
+--lora-dropout, --head-dropout, --pseudo/--pseudo-frac (all default off); finetune/train.py is untouched. run_job.py
+now accepts CODE:<file> args. Per-job val_logits.npy/val_ids.csv (and epoch snapshots for e003/e004) are in
+research/runs/<exp>/<job>/.
