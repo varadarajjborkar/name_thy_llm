@@ -146,3 +146,17 @@ Decision: discard. Shorter views remove style evidence and the eval passages are
 Next: e010 = e005 with --seed 7. Not an improvement test: it measures run-to-run noise (same config, different seed:
 batch order, LoRA dropout masks, head dropout) so every difference above can be read against it; and the logits give a
 real two-seed ensemble test.
+
+### e010 seed repeat of e005 (2026-11-09)
+What: e005 config exactly, --seed 7 (different batch order and dropout masks). Purpose: noise floor.
+Result: f0 raw 0.552, f1 0.544, mean 0.548 vs 0.557 for seed 42: a 0.9 point gap from the seed alone on a
+two-fold mean. Predictions of the two seeds agree on only 79-80% of rows. Averaging the two seeds' log-softmax:
+f0 0.557, f1 0.559, mean 0.558 (+0.5 over the mean of the single runs 0.553).
+Consequence for everything above: the noise of a two-fold mean is about +-1 point, so e007 (0.548), e008 (0.550),
+e009 (0.543), e004 (0.531 on s1000 init) and e002 (+0.8 over e001) are all within noise of the baseline; only
+e003 (lr 2e-4, -2.3 vs e002 on s1000) and e006 (hostlike, -2.9) are clearly worse, and e005 vs e002 (init, +1.8, and
+both folds moved the same way) is the only clear gain. Baseline raw is best stated as 0.553 (mean of two seeds).
+The keep rule (>= 1.0) is about the noise size, so any single positive result needs a seed repeat before being believed.
+Next: e011 dropout (LoRA 0.15, head 0.3), the last cheap regularisation test; if flat, the stage-2 hyper-parameters
+are done and I move to something structural (pseudo-labelling the unlabeled evaluation rows, label-free so it is
+legal in CV).
