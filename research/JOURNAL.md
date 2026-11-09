@@ -243,3 +243,9 @@ Per-group logistic on our 316 style features (pool 26k sibling rows + host outsi
 
 ### LB: prompt centering (main agent, 2026-11-09 18:00)
 Notebook v5 = three stage-2 fits + SVM + LGBM, prompt centering w 0.5, full sinkhorn: **LB 0.572** (previous 0.555). Between the OOF simulations (partial groups +0.9, full groups +4.9): the hidden test has real multi-model prompt groups, just not complete 18-model sets. Centering is now a core component; the shared-prompt Gaussian becomes more promising. Partial sinkhorn 0.45 added to the notebook for the next submission.
+
+### Notebook component 4: shared-prompt Gaussian (main agent, 2026-11-09 18:40)
+Two-way model x = class mean + prompt shift + noise, S and T diagonalised together, shift estimated per found cluster with shrinkage lam/(1+n lam), 5 EM rounds (features/prompt_gauss.py). Out of fold, with partial sinkhorn 0.45; baseline = blend - 0.5 x cluster mean:
+- full groups: baseline 0.6306; + 0.2 x Gaussian on blend log-probs 0.6338; + 0.2 x Gaussian on frozen run3 PCA-128 0.6366 (alone 0.597 / 0.515).
+- partial groups (2-10 per prompt): baseline 0.6016; + Gaussian 0.6012 / 0.6000.
+DROP: +0.3 to +0.6 only when groups are complete, zero on partial groups; plain centering already captures the shared prompt shift.
