@@ -213,24 +213,30 @@ if "lgbm" in WEIGHTS:
 # seeds trained on all train.csv rows + 2,950 pool rows (features/atlas_fit.py). OOF folds 0-3, seed-averaged:
 # + 0.15 x ATLAS on the v6 blend = +1.08 (every fold up). The feature code is the same module used for training.
 if "atlas" in WEIGHTS:
-    import lightgbm as lgb
-    import torch
-    sys.path.insert(0, os.path.dirname(find("atlas_feats.py")))
-    from atlas_feats import load_lm, score  # noqa: E402
+    try:  # never lose a submission to this member: on any failure the blend falls back to exactly v6
+        import lightgbm as lgb
+        import torch
+        sys.path.insert(0, os.path.dirname(find("atlas_feats.py")))
+        from atlas_feats import load_lm, score  # noqa: E402
 
-    meta = json.load(open(find("atlas_meta.json")))
-    assert meta["classes"] == classes, "ATLAS class order differs"
-    tok_a, lm_a = load_lm(os.path.dirname(find("config.json", "4b-base")), torch.float16)
-    Fa = score(list(test_text), tok_a, lm_a, 4, meta["maxlen"], log=P)
-    del lm_a
-    import gc
-    gc.collect()
-    torch.cuda.empty_cache()
-    Xa = Fa[meta["cols"]].to_numpy()
-    assert np.isfinite(Xa).all(), "non-finite ATLAS features"
-    pa = np.mean([lgb.Booster(model_file=find(f"atlas_lgb_s{s}.txt")).predict(Xa) for s in range(meta["seeds"])], 0)
-    members["atlas"] = np.log(np.clip(pa, 1e-9, 1))
-    P("atlas done")
+        meta = json.load(open(find("atlas_meta.json")))
+        assert meta["classes"] == classes, "ATLAS class order differs"
+        tok_a, lm_a = load_lm(os.path.dirname(find("config.json", "4b-base")), torch.float16)
+        Fa = score(list(test_text), tok_a, lm_a, 4, meta["maxlen"], log=P)
+        del lm_a
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        Xa = Fa[meta["cols"]].to_numpy()
+        bad = ~np.isfinite(Xa).all(1)
+        pa = np.mean([lgb.Booster(model_file=find(f"atlas_lgb_s{s}.txt")).predict(np.nan_to_num(Xa))
+                      for s in range(meta["seeds"])], 0)
+        pa[bad] = 1.0 / len(classes)  # a row with non-finite features gets a flat (no-opinion) ATLAS vote
+        members["atlas"] = np.log(np.clip(pa, 1e-9, 1))
+        P(f"atlas done ({int(bad.sum())} rows with non-finite features set flat)")
+    except Exception as e:
+        WEIGHTS.pop("atlas", None)
+        P(f"ATLAS FAILED, blend falls back to v6: {type(e).__name__}: {e}")
 
 # ---------------------------------------------------------------- blend + write
 blend = sum(w * log_softmax(T * members[k]) for k, (w, T) in WEIGHTS.items())

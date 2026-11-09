@@ -187,7 +187,7 @@ def check_dashboard(st, al):
         st["dash_fail"] = st.get("dash_fail", 0) + 1
     if st["dash_fail"] == 2:  # two passes in a row (about 6 minutes): restart once
         code, out = wmi_start(f'"{PYW}" "{ROOT / "dashboard/server.py"}" --no-browser')
-        if out.strip().endswith("0"):
+        if out.strip().splitlines()[-1:] == ["0"]:
             event("FIXED", "dashboard", "not answering for 2 checks: restart launched (the next pass confirms it)")
         else:
             al.raise_("dashboard", "dashboard", f"restart could not be launched: {out.strip()[-120:]}")
@@ -216,7 +216,7 @@ def check_jobs(st, al):
                 size = f.seek(0, 2)
                 start = j.get("offset", 0)
                 if size < j.get("last_size", size) or size < start:
-                    start = 0  # the log was truncated and rewritten since the last pass: read it all
+                    start = j["offset"] = 0  # truncated and rewritten since the last pass: read it all, from now on
                 j["last_size"] = size
                 f.seek(max(start, size - 200_000))
                 tail = f.read().decode("utf-8", errors="replace")
@@ -247,7 +247,7 @@ def check_jobs(st, al):
         jobs.pop(n, None)
     for n, j in jobs_now.items():
         if n in jobs and "last_size" in j and jobs[n].get("registered") == j.get("registered"):
-            jobs[n]["last_size"] = j["last_size"]
+            jobs[n]["last_size"], jobs[n]["offset"] = j["last_size"], j.get("offset", 0)
     save(JOBS, jobs)
 
 

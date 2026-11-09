@@ -45,6 +45,11 @@ def score(texts, tok, lm, bs=4, maxlen=320, log=print):
         ix = order[b:b + bs]
         enc = tok([tok.bos_token + texts[i] if tok.bos_token else texts[i] for i in ix], return_tensors="pt",
                   padding=True, truncation=True, max_length=maxlen).to(0)
+        if enc.input_ids.shape[1] < 2:  # a batch of empty / one-token texts: neutral rows, no forward pass
+            for i in ix:
+                z = np.zeros(2)
+                res[i] = summarise(z, z, z) + summarise(z, z, z) + [np.log(2)]
+            continue
         hid = lm.model(**enc, use_cache=False).last_hidden_state  # vocab logits one passage at a time (memory)
         tgt, m = enc.input_ids[:, 1:], enc.attention_mask[:, 1:].bool()
         for j, i in enumerate(ix):
