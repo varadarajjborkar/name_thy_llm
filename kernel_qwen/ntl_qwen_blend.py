@@ -204,6 +204,25 @@ if "lgbm" in WEIGHTS:
 
 # ---------------------------------------------------------------- blend + write
 blend = sum(w * log_softmax(T * members[k]) for k, (w, T) in WEIGHTS.items())
+# Prompt centering: subtract CENTER_W x the average log-probabilities of the passage's prompt cluster (topic cancels,
+# style remains), then Sinkhorn. OOF folds 0-3: full prompt groups 0.594 -> 0.643, random partial groups
+# 0.586 -> 0.594 (features/centering.py and its follow-up check). Clusters of one passage are left untouched.
+CENTER_W = 0.5
+if CENTER_W and len(test) >= 10 * len(classes):
+    from sklearn.cluster import AgglomerativeClustering
+    from sklearn.decomposition import TruncatedSVD
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.preprocessing import normalize
+    Xg = TfidfVectorizer(stop_words="english", sublinear_tf=True, min_df=2, max_df=0.05).fit_transform(test_text)
+    Zg = normalize(TruncatedSVD(min(256, Xg.shape[1] - 1, Xg.shape[0] - 1), random_state=0).fit_transform(Xg))
+    groups = AgglomerativeClustering(n_clusters=max(1, round(len(test) / len(classes))), metric="cosine",
+                                     linkage="average").fit_predict(Zg)
+    lb = log_softmax(blend)
+    for g in np.unique(groups):
+        m = groups == g
+        if m.sum() >= 2:
+            blend[m] = lb[m] - CENTER_W * lb[m].mean(0)
+    P("prompt centering:", len(set(groups)), "clusters, sizes", pd.Series(groups).value_counts().describe().round(1).to_dict())
 if PARITY:
     from sklearn.metrics import balanced_accuracy_score as bas
     y = test.model.values
