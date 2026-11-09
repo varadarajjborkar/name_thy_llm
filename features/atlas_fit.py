@@ -31,7 +31,10 @@ PRM = dict(objective="multiclass", num_class=len(classes), learning_rate=0.05, n
 for seed in range(5):
     m = lgbm.train(dict(PRM, seed=seed), lgbm.Dataset(X, Y, weight=w), num_boost_round=300)
     m.save_model(str(OUT / f"atlas_lgb_s{seed}.txt"))
+# training feature means / sds: the notebook drops ATLAS if the test features drift (a different library version)
+# calibration: host, pool, bf16-vs-fp16 and 300-row samples shift by max |z| <= 0.28, a one-class subset 0.53
 (OUT / "atlas_meta.json").write_text(json.dumps({"cols": COLS, "classes": classes, "seeds": 5, "maxlen": 320,
-                                                 "dtype": "fp16", "rows": int(len(Y))}))
+                                                 "dtype": "fp16", "rows": int(len(Y)),
+                                                 "mean": X.mean(0).tolist(), "sd": (X.std(0) + 1e-9).tolist()}))
 shutil.copy(ROOT / "features/atlas_feats.py", OUT / "atlas_feats.py")
 print(f"trained 5 seeds on {len(Y)} rows ({len(H)} host + {len(Pl)} pool); wrote {OUT}")
