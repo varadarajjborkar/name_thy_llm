@@ -41,3 +41,5 @@
 {"time": "2026-11-09 17:18", "decision": "API generation dropped again: Kaggle proxy lacks gemini-3.7-flash (and glm, kimi, qwen, claude). Imbalance fix if needed: class weighting in next stage-1 run", "evidence": "", "result": ""}
 {"time": "2026-11-09 17:21", "decision": "Partial sinkhorn alpha 0.45: keep (0.594 balanced, -0.2 unbalanced vs full -1.2). v40A sibling-style residual rebuilt: noise/worse, drop", "evidence": "", "result": ""}
 {"time": "2026-11-09 17:42", "decision": "4-view SVM: alone 0.452 (host+pool) vs 0.371, but blend +0.3 at best of 12 weights (noise). Drop", "evidence": "", "result": ""}
+{"time": "2026-11-09 17:50", "decision": "run4 step 2500: raw 0.544 bal 0.570 val loss 1.224: converged (2000: 0.546/0.567/1.220). Queue stage 2 from run4 final: s4all + s4ff0..3", "evidence": "", "result": ""}
+{"time": "2026-11-09 18:11", "decision": "LB 0.572 with prompt centering w0.5 (+1.7 over 0.555). Centering core. Notebook now partial sinkhorn 0.45 for next sub", "evidence": "", "result": ""}

@@ -29,6 +29,7 @@ ROOT = os.environ.get("NTL_ROOT", "/kaggle/input")
 WEIGHTS = {"qwen:s2all": (0.8 / 3, 1.0), "qwen:s3all": (0.8 / 3, 1.0), "qwen:h3s2all": (0.8 / 3, 1.0),
            "svm": (0.1, 3.0), "lgbm": (0.1, 1.0)}
 SINKHORN = True
+SINK_ALPHA = 0.45  # LB history: full sinkhorn + centering w0.5 = 0.572 (v5)
 PARITY = False  # True only for pipeline checks; never in a submission
 t_start = time.time()
 
@@ -230,7 +231,10 @@ if PARITY:
         print(f"PARITY {k}: raw {bas(y, np.array(classes)[z.argmax(1)]):.4f} "
               f"balanced {bas(y, np.array(classes)[sinkhorn(log_softmax(z)).argmax(1)]):.4f}", flush=True)
 if SINKHORN and len(test) >= 10 * len(classes):  # only meaningful on a reasonably large, balanced test set
-    blend = sinkhorn(blend)
+    # partial: move SINK_ALPHA of the way towards equal shares (OOF: 0.45 is near-best when the test is balanced
+    # and costs only 0.2 when it is not; full balancing cost 1.2 on unbalanced resamples). research/partial_sinkhorn.py
+    lb = log_softmax(blend)
+    blend = (1 - SINK_ALPHA) * lb + SINK_ALPHA * sinkhorn(lb)
 pred = np.array(classes)[blend.argmax(1)]
 sub = pd.DataFrame({"id": test.id.astype(str).values, "model": pred})
 assert len(sub) == len(test)
