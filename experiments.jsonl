@@ -19,3 +19,12 @@
 {"time": "2026-11-09 05:18", "decision": "LB Qwen blend: argmax 0.520, sinkhorn 0.521 (OOF 0.543/0.546). Started local stage-2 s2f2, s2f3, s2all (lr 1e-4/1e-3, 2 ep, init run2final)", "evidence": "", "result": ""}
 {"time": "2026-11-09 06:19", "decision": "stage-2 4-fold OOF raw 0.566; blend s2 .6 s1 .2 svm .1 lgbm .1: OOF raw 0.575 sk 0.580. Pushing to LB", "evidence": "", "result": ""}
 {"time": "2026-11-09 06:44", "decision": "LB 0.550: stage-2 blend (OOF 0.580). New best", "evidence": "", "result": ""}
+{"time": "2026-11-09 07:05", "decision": "seed avg fold2: 0.5833 vs 0.5685/0.5796. run3: stage-1 continuation on pool_cont_30k from run2final, lr 5e-5; then s3f2/s3f3", "evidence": "", "result": ""}
+{"time": "2026-11-09 07:32", "decision": "run3 step 250: raw 0.484 bal 0.517 (run2 end 0.518/0.529): re-warm dip at lr 5e-5, continue; judged by stage-2 A/B", "evidence": "", "result": ""}
+{"time": "2026-11-09 08:00", "decision": "run3 step 500: raw 0.510 bal 0.517, recovering", "evidence": "", "result": ""}
+{"time": "2026-11-09 08:55", "decision": "k_host1 0.528, k_host3 0.530 vs run2 0.521 (full val). Ensemble run2+kh3 0.541/0.554. Stage 2 from kh3 on Kaggle (ntl-s2-main)", "evidence": "", "result": ""}
+{"time": "2026-11-09 09:25", "decision": "run3 full-val 0.527 (run2 0.521). Stage 2 from run3: f2 0.594 (s2 0.5685), f3 0.5815 (0.5815). s2+s3 avg sinkhorn f2 0.600 f3 0.609. Queue s3all, s3f0, s3f1", "evidence": "", "result": ""}
+{"time": "2026-11-09 10:05", "decision": "e013 leak-safe regen in stage 2: raw 0.531 vs 0.557: discard; keep regen out of final fit", "evidence": "", "result": ""}
+{"time": "2026-11-09 10:10", "decision": "stage 2 from kh3: folds 0.5593 0.5519 0.5778 0.5981 (mean 0.572; run2-based 0.566)", "evidence": "", "result": ""}
+{"time": "2026-11-09 10:39", "decision": "s3 folds 0-1 0.5667/0.5481 (distinct from e005, verified). 3-family stage-2 mean OOF raw 0.580; + svm .1 + lgbm .1: raw 0.589 sk 0.591", "evidence": "", "result": ""}
+{"time": "2026-11-09 11:08", "decision": "LB 0.555: 3-family stage-2 ensemble (OOF 0.591). Diminishing returns from same-backbone ensembles", "evidence": "", "result": ""}

@@ -13,10 +13,11 @@ import subprocess
 import sys
 import time
 
-EXP = "e007-ls0.1"  # experiment id, also printed in summary.json
+EXP = "e013-regen-leaksafe"  # experiment id, also printed in summary.json
+# train_regen re-answers of the host prompts, minus the scored fold's prompts (built by the main agent)
 JOBS = [  # (job name, extra args for train_exp.py); job i runs on GPU i
-    ("f0", ["--cv-fold", "0", "--init", "INIT:run2final", "--lr", "1e-4", "--head-lr", "1e-3", "--epochs", "2", "--label-smoothing", "0.1"]),
-    ("f1", ["--cv-fold", "1", "--init", "INIT:run2final", "--lr", "1e-4", "--head-lr", "1e-3", "--epochs", "2", "--label-smoothing", "0.1"]),
+    ("f0", ["--cv-fold","0","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--extra","CODE:regen_excl_f0.parquet"]),
+    ("f1", ["--cv-fold","1","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--extra","CODE:regen_excl_f1.parquet"]),
 ]
 COMMON = ["--arch", "ms", "--layers", "24", "--compute-dtype", "fp16", "--eval-n", "0", "--ckpt-every", "1000000",
           "--eval-every", "1000000"]
@@ -49,8 +50,9 @@ for f in glob.glob("/kaggle/input/**/*.parquet", recursive=True):
 link(os.path.dirname(find("config.json", "4b-base")), f"{W}/models/qwen3-4b-base")
 
 
-def resolve(args):  # INIT:<name> -> path of <name>__weights.pt in ntl-qwen-weights
-    return [find(f"{x[5:]}__weights.pt") if x.startswith("INIT:") else x for x in args]
+def resolve(args):  # INIT:<name> -> path of <name>__weights.pt in ntl-qwen-weights; CODE:<file> -> file in ntl-research-code
+    return [find(f"{x[5:]}__weights.pt") if x.startswith("INIT:") else find(x[5:]) if x.startswith("CODE:") else x
+            for x in args]
 
 
 procs = []

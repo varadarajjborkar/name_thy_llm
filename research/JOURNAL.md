@@ -117,3 +117,109 @@ Next: e007 label smoothing 0.1, e008 batch 16 (more optimizer steps), then a see
 
 ### Main agent note (2026-11-09 06:55)
 LB: stage-2 blend (s2all 0.6 + s1 0.2 + svm 0.1 + lgbm 0.1, sinkhorn) = **0.550** (OOF 0.580). Stage 2 transfers to the hidden test; CV-to-LB gap about -0.03.
+
+### e007 label smoothing 0.1 (2026-11-09)
+What: e005 config with --label-smoothing 0.1. Why: queue idea 6; guards against overconfident logits on easy classes.
+Result: f0 raw 0.563 / sinkhorn 0.556, f1 0.533 / 0.570. Mean raw 0.548 vs 0.557 (-0.9), sinkhorn 0.563 vs 0.572.
+Decision: discard (not better, within noise but on the wrong side). 22 min.
+Next: e008 effective batch 16 (accum 2, 268 steps instead of 134): the train loss at the end of stage 2 is still ~1.1,
+so more, smaller updates at the same lr may fit better without more epochs.
+
+### Main agent note (2026-11-09 07:05)
+Seed averaging (fold 2, stage 2 seeds 42 and 7): raw 0.5685 / 0.5796 -> avg 0.5833; sinkhorn flat. s2allb (seed 7 full fit) uploaded. Local run3 = stage 1 continued from run2final on 29,729 unseen pool rows (lr 5e-5), then stage 2 on folds 2,3 (s3f2, s3f3) to compare with s2f2/s2f3.
+
+### e008 batch 16 (accum 2) (2026-11-09)
+What: e005 config with --accum 2 (effective batch 16, 268 steps). Result: f0 raw 0.554 / sinkhorn 0.565, f1 0.546 / 0.561.
+Mean raw 0.550 vs 0.557 (-0.7), sinkhorn 0.563. 26 min. Decision: discard (flat).
+Reading so far (e002..e008, init run2final or s1000): lr 5e-5..1e-4, 2-3 epochs, batch 16/32, label smoothing, ensembles
+and extra hostlike all land at 0.53-0.56 raw on folds 0+1; only the init (run2final vs s1000, +1.8) and a bad lr (2e-4)
+or off-distribution data (hostlike, -2.9) moved the number. Optimisation tweaks are exhausted, so the next ideas
+target regularisation / data: e009 random-span crop augmentation (--crop-min 0.6), e010 higher LoRA/head dropout.
+Both need new train_exp.py options (--crop-min, --lora-dropout, --head-dropout; defaults reproduce the old behaviour).
+
+### e009 random-span crop augmentation (2026-11-09)
+What: e005 config; each training passage is cut to a random contiguous span of 60-100% of its tokens (rows under 48
+tokens untouched), new crop each time a row is seen. Why: stage 2 is data-limited (2.1k rows), crops give the model
+different views of the same passage.
+Result: f0 raw 0.557 / sinkhorn 0.552, f1 0.528 / 0.565. Mean raw 0.543 vs 0.557 (-1.5). 23 min.
+Decision: discard. Shorter views remove style evidence and the eval passages are always full length.
+Next: e010 = e005 with --seed 7. Not an improvement test: it measures run-to-run noise (same config, different seed:
+batch order, LoRA dropout masks, head dropout) so every difference above can be read against it; and the logits give a
+real two-seed ensemble test.
+
+### e010 seed repeat of e005 (2026-11-09)
+What: e005 config exactly, --seed 7 (different batch order and dropout masks). Purpose: noise floor.
+Result: f0 raw 0.552, f1 0.544, mean 0.548 vs 0.557 for seed 42: a 0.9 point gap from the seed alone on a
+two-fold mean. Predictions of the two seeds agree on only 79-80% of rows. Averaging the two seeds' log-softmax:
+f0 0.557, f1 0.559, mean 0.558 (+0.5 over the mean of the single runs 0.553).
+Consequence for everything above: the noise of a two-fold mean is about +-1 point, so e007 (0.548), e008 (0.550),
+e009 (0.543), e004 (0.531 on s1000 init) and e002 (+0.8 over e001) are all within noise of the baseline; only
+e003 (lr 2e-4, -2.3 vs e002 on s1000) and e006 (hostlike, -2.9) are clearly worse, and e005 vs e002 (init, +1.8, and
+both folds moved the same way) is the only clear gain. Baseline raw is best stated as 0.553 (mean of two seeds).
+The keep rule (>= 1.0) is about the noise size, so any single positive result needs a seed repeat before being believed.
+Next: e011 dropout (LoRA 0.15, head 0.3), the last cheap regularisation test; if flat, the stage-2 hyper-parameters
+are done and I move to something structural (pseudo-labelling the unlabeled evaluation rows, label-free so it is
+legal in CV).
+
+### e011 higher dropout (2026-11-09)
+What: e005 config with LoRA dropout 0.15 (was 0.05) and head dropout 0.3 (was 0.1). Result: f0 raw 0.557 / sinkhorn
+0.583, f1 0.537 / 0.570. Mean raw 0.547 vs 0.557 (seed-7 repeat of e005 gave 0.548), sinkhorn 0.577 (highest so far,
+but within the same noise). Decision: discard, flat. This closes the stage-2 hyper-parameter sweep: nothing beats the
+e005 recipe beyond noise.
+
+### e012 plan: pseudo-labelling the unlabeled evaluation rows (2026-11-09)
+Idea: the hidden test (~4,000 unlabeled rows) is available at inference time, so a self-training stage is legal. CV
+simulation, label-free: take the e005+e010 averaged predictions on a fold's validation rows, keep the most confident 40%
+(offline check on folds 0/1: top 30% is 86% correct, top 50% is 75% correct) with the argmax as label, add them to the
+fold's training rows, retrain from run2final with the e005 recipe, score on the fold's full validation set. Limits: the
+pseudo rows are the easy ones (little new information), and a 540-row fold gives only ~216 pseudo rows versus ~1,600 on
+the real test, so CV likely understates any gain. Needs train_exp.py --pseudo/--pseudo-frac (dataset versioned) and the
+runner's CODE:<file> argument resolver. Fold labels are never read to build the pseudo set.
+
+### Main agent note (2026-11-09 08:55)
+Kaggle stage-1 data runs (full val 2,160 rows): run2 (pool) 0.521, k_host1 (pool+hostlike) 0.528, k_host3 (pool+hostlike x3) 0.530. Stage-1 ensembles: run2+kh3 raw 0.541 / sinkhorn 0.554. Uploaded as kh1final, kh3final. Main agent runs stage 2 from kh3final (folds 0-3 + full fit) in kernel ntl-s2-main (main agent slot); research agent should not duplicate this.
+
+### e012 pseudo-labelling (2026-11-09)
+What: e005 recipe plus 216 pseudo-labelled rows (top 40% by confidence of the e005+e010 average on the fold's own
+validation rows, argmax labels, no true labels read), 2 epochs. Result: f0 raw 0.552 / sinkhorn 0.550, f1 0.537 / 0.557.
+Mean raw 0.544 vs 0.553 (mean of the two e005-recipe seeds). 27 min. Decision: discard; no gain at this scale. It is
+untested at the real scale (~1,600 pseudo rows on the 4,000-row test) and the selected rows are the ones the model
+already gets right, so I do not expect it to help, but CV cannot show that.
+
+## Handoff (gen 1)
+Budget used: 5.67 of 14 GPU hours (13 sessions). Nothing is running. Last push: e012 (finished and logged).
+**Best config (baseline for shipping):** stage 2 from `run2final`, lr 1e-4 body / 1e-3 head, 2 epochs, bs 8 x accum 4
+(eff. 32), warmup 0.03, maxlen 320, eval maxlen 384, fp16, otherwise train.py defaults. Folds 0+1 raw balanced accuracy
+0.557 (seed 42, e005) and 0.548 (seed 7, e010): mean 0.553; sinkhorn 0.572 / 0.561. Stage 1 alone on the same folds
+(run2s1000, zero updates) scores raw 0.459, so stage 2 adds about +7 points, and `run2final` as init adds about +1.8 over
+`run2s1000`.
+**Table (raw, folds 0+1 mean):** e001 s1000 baseline 5e-5 0.531 | e002 lr 1e-4 0.539 | e003 lr 2e-4 0.516 | e004 3 epochs
+0.531 | e005 run2final lr 1e-4 0.557 | e006 +3k hostlike 0.528 | e007 label smoothing 0.548 | e008 batch 16 0.550 |
+e009 crop aug 0.543 | e010 seed repeat 0.548 | e011 dropout 0.547 | e012 pseudo-labels 0.544.
+**Findings:** (1) the seed noise of a two-fold mean is about +-1 point, so everything between 0.543 and 0.557 on run2final
+is indistinguishable; the stage-2 hyper-parameter space around the public recipe is flat. (2) Clear negatives: lr 2e-4,
+hostlike rows added to stage 2 (-2.9, so off-distribution text hurts stage 2). (3) Ensembling stage-2 runs adds little:
+two seeds +0.5, mixed configs 0 to +0.3 (logit averages computed offline from research/runs/*). (4) After stage 2,
+sinkhorn adds only ~+1 on average (vs +4 on stage-1 weights): stage 2 already fixes most of the class-prior skew;
+residual errors are sibling models (gemini-3.7-flash vs 3.6/3.8, glm-5.3 vs flash, gpt-5.6 sol/luna/terra).
+claude-fable-5 has recall 0.13 and gemini-3.7-flash 0.23 (e002 pooled folds).
+**Recommendation to the main agent:** ship the e005 recipe from run2final; fit it on all of train.csv (cv-fold -2) and, if
+time allows, average 2-3 seeds (about +0.5, cheap) rather than tuning further. The big levers are upstream of stage 2:
+a better stage 1 (more or more host-faithful pool data; run2 val was flat while train loss fell) and more real host
+rows. I did not test `train_regen_norm.parquet` (leakage rule); it is the one untested data source that could add real
+host-style rows, but it can only be evaluated by a protocol that excludes the validation prompts, which I did not build.
+**What I would try next if continuing:** (a) stage 2 starting from the k_host1/k_host3 stage-1 weights when they exist,
+same recipe, to see if host-faithful stage 1 beats run2final; (b) stage 2 with train_regen_norm rows after removing the
+rows of each fold's validation prompts (requires prompt ids in that file); (c) folds 2+3 only matter if a candidate
+appears; none did, so I did not spend GPU on them.
+**Open doubts:** folds 0+1 are 1,080 rows total; every number has +-1 noise. Fold 4 (lockbox) was never touched. All
+`grouped*` columns in results.tsv were ignored for decisions. train_exp.py gained options --extra/--extra-n, --crop-min,
+--lora-dropout, --head-dropout, --pseudo/--pseudo-frac (all default off); finetune/train.py is untouched. run_job.py
+now accepts CODE:<file> args. Per-job val_logits.npy/val_ids.csv (and epoch snapshots for e003/e004) are in
+research/runs/<exp>/<job>/.
+
+### e013 leak-safe train_regen extras (main agent, 2026-11-09)
+What: e005 config plus train_regen_norm rows (all 18 models re-answering the host prompts), with the scored fold's prompts removed. Result: raw 0.5185 / 0.5444 (mean 0.531, e005 0.557), sinkhorn 0.535 / 0.565, 46 min. Decision: discard. External rows hurt stage 2 even when topic-matched (same as e006 hostlike, -2.9). Keep train_regen out of the final fit too.
+
+### Main agent note (2026-11-09 10:50)
+LB: three stage-2 fits (run2, run3, k_host3 starts) 0.8 + SVM 0.1 + LGBM 0.1, sinkhorn = **0.555** (OOF 0.591; previous 0.550 at OOF 0.580). Same-backbone ensembling gives diminishing returns; bigger gains need a stronger or different backbone or more real host-like data (decision for the user).
