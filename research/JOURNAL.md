@@ -217,3 +217,6 @@ appears; none did, so I did not spend GPU on them.
 --lora-dropout, --head-dropout, --pseudo/--pseudo-frac (all default off); finetune/train.py is untouched. run_job.py
 now accepts CODE:<file> args. Per-job val_logits.npy/val_ids.csv (and epoch snapshots for e003/e004) are in
 research/runs/<exp>/<job>/.
+
+### e013 leak-safe train_regen extras (main agent, 2026-11-09)
+What: e005 config plus train_regen_norm rows (all 18 models re-answering the host prompts), with the scored fold's prompts removed. Result: raw 0.5185 / 0.5444 (mean 0.531, e005 0.557), sinkhorn 0.535 / 0.565, 46 min. Decision: discard. External rows hurt stage 2 even when topic-matched (same as e006 hostlike, -2.9). Keep train_regen out of the final fit too.

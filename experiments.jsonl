@@ -23,3 +23,5 @@
 {"time": "2026-11-09 07:32", "decision": "run3 step 250: raw 0.484 bal 0.517 (run2 end 0.518/0.529): re-warm dip at lr 5e-5, continue; judged by stage-2 A/B", "evidence": "", "result": ""}
 {"time": "2026-11-09 08:00", "decision": "run3 step 500: raw 0.510 bal 0.517, recovering", "evidence": "", "result": ""}
 {"time": "2026-11-09 08:55", "decision": "k_host1 0.528, k_host3 0.530 vs run2 0.521 (full val). Ensemble run2+kh3 0.541/0.554. Stage 2 from kh3 on Kaggle (ntl-s2-main)", "evidence": "", "result": ""}
+{"time": "2026-11-09 09:25", "decision": "run3 full-val 0.527 (run2 0.521). Stage 2 from run3: f2 0.594 (s2 0.5685), f3 0.5815 (0.5815). s2+s3 avg sinkhorn f2 0.600 f3 0.609. Queue s3all, s3f0, s3f1", "evidence": "", "result": ""}
+{"time": "2026-11-09 10:05", "decision": "e013 leak-safe regen in stage 2: raw 0.531 vs 0.557: discard; keep regen out of final fit", "evidence": "", "result": ""}
