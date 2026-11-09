@@ -13,11 +13,11 @@ import subprocess
 import sys
 import time
 
-EXP = "e014-hardneg-margin"  # experiment id, also printed in summary.json
-# "it is NOT its sibling": hinge on (true logit - strongest rival logit) < 1, weight 0.5, on top of e005
+EXP = "e015-fgm"  # experiment id, also printed in summary.json
+# adversarial training: also train on input embeddings nudged (global norm eps 1.0) in the loss-increasing direction
 JOBS = [  # (job name, extra args for train_exp.py); job i runs on GPU i
-    ("f0", ["--cv-fold","0","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--hn-weight","0.5","--hn-margin","1.0"]),
-    ("f1", ["--cv-fold","1","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--hn-weight","0.5","--hn-margin","1.0"]),
+    ("f0", ["--cv-fold","0","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--fgm-eps","1.0"]),
+    ("f1", ["--cv-fold","1","--init","INIT:run2final","--lr","1e-4","--head-lr","1e-3","--epochs","2","--fgm-eps","1.0"]),
 ]
 COMMON = ["--arch", "ms", "--layers", "24", "--compute-dtype", "fp16", "--eval-n", "0", "--ckpt-every", "1000000",
           "--eval-every", "1000000"]

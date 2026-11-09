@@ -226,3 +226,6 @@ LB: three stage-2 fits (run2, run3, k_host3 starts) 0.8 + SVM 0.1 + LGBM 0.1, si
 
 ### Adversarial ideas (main agent, 2026-11-09 13:00)
 Duel specialists (per sibling group, logistic on PCA of frozen run3 features, pool + host rows, out-of-fold): lose to the blend inside every group at 32/128/512 dims (e.g. gemini flash 0.553 vs 0.592, claude 0.713 vs 0.748); overriding costs 0.3-2.4 pts. Adversarial booster (logistic on blend OOF log-probs + PCA features, errors up-weighted, cross-fitted): best 0.5898 vs 0.5889 (noise), more error weight is worse. Conclusion: the sibling ceiling is signal in the data/features, not the decision layer. Both closed.
+
+### e014 hard-negative margin (main agent, 2026-11-09)
+What: e005 + hinge 0.5 x max(0, 1 - (true logit - strongest rival logit)), i.e. "it is NOT that sibling" inside stage-2 training. Result: raw 0.5759 / 0.5444 (mean 0.560 vs e005 0.557), sinkhorn 0.585 / 0.567. Decision: discard (within seed noise).
