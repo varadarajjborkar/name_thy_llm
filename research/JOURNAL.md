@@ -295,3 +295,9 @@ Possible reasons: public-LB noise (a few hundred rows give an SE of roughly 1.5 
 ATLAS member / s4 weight not transferring to the hidden test. One LB point cannot separate them; do not tune to it.
 Mistake: v7 was submitted twice (refs 58188309 and 58188319, 26 s apart, both 0.571). A chain "stopped" from the
 harness kept running in its bash child and submitted alongside the resumed chain. submit_v7.sh now holds a lock file.
+
+### 8B stage 2 and the blend test (main agent, 2026-11-10 16:00)
+k8f0-3 (8B stage 2 from k8b_local, s4ff recipe): 0.574 / 0.563 / 0.607 / 0.620, family raw 0.591 (s4 0.597).
+research/blend_8b.py, folds 0-3, v7 post (centering 0.5 + partial sinkhorn 0.45), ATLAS rebuilt 5-seed as shipped:
+v7 0.6491. Adding the 8B family on top: w 0.1 +0.42, w 0.2 +0.88 (4/4 folds up), w 0.3 +0.83 (4/4), w 0.5 +0.93 (3/4).
+Moving weight from s4 to 8B is worse (0.35/0.35 +0.65, 0.25/0.25 +0.46). Pick: s4 0.5 + 8B 0.2. k8all (full fit) done.
