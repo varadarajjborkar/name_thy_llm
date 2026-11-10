@@ -278,3 +278,11 @@ ATLAS follow-up (22:35): fp16 features (Kaggle T4 dtype) have 0 NaN, correlate 0
 - v7 (v6 + ATLAS, logs, staging, guards) passed two local parity runs and a final local run; Kaggle parity skipped to save GPU quota (user); version 9 queued, chain tools/submit_v7.sh submits after checking version 9's own output.
 - Stage-2 lr 5e-5 A/B: fold 0 0.607 vs 0.617 at 1e-4: stopped, keep 1e-4.
 - Local 8B: bs 8 spills past 8 GB (>30 s/step); bs 4 x accum 8 peaks 6.8 GB at 13.8 s/step. Overnight run k8b_local (pool_host1 67k, same recipe as Kaggle k8b) started 00:22, ~2,090 steps, ETA ~09:00.
+
+### 8B stage 1 local and v7 queue (main agent, 2026-11-10 09:40)
+k8b_local (Qwen3-8B, stage 1 on pool_host1 67k rows, 1 epoch, bs 4 x accum 8, 13.8 s/step, about 8 h): full val 0.5440
+(class-balanced eval 0.5589). Same data on 4B (k_host1) gave 0.528, so 8B is +1.6 at equal data. run4 (4B, 92k more
+pool rows on top of run2) is 0.568, so data volume still matters as much as model size.
+Stage 2 from k8b_local started (tools/stage2_8b.sh: k8f0-3 then k8all, s4ff recipe, bs 4 x accum 8).
+v7 (kernel version 9) sat QUEUED on Kaggle for 6 h (no GPU time reserved, quota 4 h left); the chain stopped without
+submitting and was resumed (RESUME_V=9) instead of re-pushing, which would have re-queued it.
