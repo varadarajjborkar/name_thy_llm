@@ -52,6 +52,8 @@ if [[ -n "${RESUME_V:-}" ]]; then  # resume: an already-pushed version is queued
   say "chain resumed (notebook md5 $NB_HASH): waiting for already-pushed version $v (pushed $PUSH_UTC UTC), up to $((WAIT_LOOPS * 2)) min"
   [[ "$(current_version)" == "$v" ]] || fail "latest kernel version is not $v; something else was pushed"
   grep -q '^PARITY = os.environ.get("NTL_PARITY", "0") == "1"' "$NB" || fail "notebook PARITY default is not off"
+  s=$(status)  # the status belongs to the latest version (checked above); a stale terminal status cannot be another run's
+  case "$s" in *QUEUED|*RUNNING|*COMPLETE) ;; *) fail "version $v is not queued, running or complete (status $s)" ;; esac
 elif [[ "${SKIP_PARITY:-0}" == "1" ]]; then  # user decision 2026-11-09: save Kaggle GPU quota, rely on the local tests
   say "chain started (notebook md5 $NB_HASH): Kaggle parity skipped (local parity tests passed); waiting for version $PARITY_V to stop"
   s=$(wait_done); say "version $PARITY_V status: $s"
@@ -135,7 +137,9 @@ res=$(kaggle competitions submit name-that-llm -k "$K" -v "$v" -f submission.par
   -m "v7: v6 + ATLAS base-LM likelihood member at 0.15 (OOF +1.08 seed-averaged, every fold up); parity checked locally" 2>&1)
 rc=$?
 say "submit (rc $rc): $(echo "$res" | grep -v Warning)"
-[[ $rc -eq 0 ]] && echo "$res" | grep -q "Successfully submitted" || fail "submit was not accepted"
+# newer kaggle CLIs print nothing on success (2026-11-10), so the submissions list is the proof, not the message
+[[ $rc -eq 0 ]] && ! echo "$res" | grep -qiE "error|not allowed" || fail "submit was not accepted"
 sleep 20
-kaggle competitions submissions -c name-that-llm --csv 2>&1 | grep -q '"v7: v6 + ATLAS' || fail "submit reported success but no v7 row is listed"
+n2=$(kaggle competitions submissions -c name-that-llm --csv 2>&1 | awk -F, -v d="$today" '$1 ~ /^[0-9]+$/ && substr($3, 1, 10) == d && /"v7: v6 \+ ATLAS/ {c++} END {print c + 0}')
+[[ "$n2" -ge 1 ]] || fail "no v7 row for today in the submissions list (check by hand before resubmitting)"
 say "SUBMITTED v7 (kernel version $v)"

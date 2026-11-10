@@ -286,3 +286,7 @@ pool rows on top of run2) is 0.568, so data volume still matters as much as mode
 Stage 2 from k8b_local started (tools/stage2_8b.sh: k8f0-3 then k8all, s4ff recipe, bs 4 x accum 8).
 v7 (kernel version 9) sat QUEUED on Kaggle for 6 h (no GPU time reserved, quota 4 h left); the chain stopped without
 submitting and was resumed (RESUME_V=9) instead of re-pushing, which would have re-queued it.
+v7 submitted 2026-11-10 11:11 IST (kernel version 10, ref 58188309). Version 9 never left the queue (11.5 h, cancelled);
+version 10 ran within minutes. Kaggle only accepts a version whose own run has finished and written submission.parquet
+("Notebook is still running. Did not find provided Notebook Output File"). The CLI no longer prints "Successfully
+submitted", so the chain now treats the submissions list as the proof.
