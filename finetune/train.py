@@ -204,7 +204,8 @@ class MultiScale(torch.nn.Module):
         self.head = torch.nn.Linear(hidden * len(depths), n_classes)
 
     def forward(self, input_ids, attention_mask):
-        hs = self.base(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True).hidden_states
+        hs = self.base(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True,
+                       use_cache=False).hidden_states  # no key/value cache: not needed for classification
         m = attention_mask.unsqueeze(-1).float()
         denom = m.sum(1).clamp(min=1.0)
         feats = [norm((hs[d].float() * m).sum(1) / denom) for norm, d in zip(self.norms, self.depths)]
@@ -264,6 +265,9 @@ LATEST, PREV, TMP = RUN / "ckpt_latest", RUN / "ckpt_prev", RUN / "ckpt_tmp"
 
 
 def save_ckpt(step, best):
+    if not all(torch.isfinite(p_).all() for _, p_ in named):  # never let NaN weights replace a good checkpoint
+        P(f"weights not finite at step {step}: checkpoint NOT saved (the previous ones are kept)")
+        return
     if TMP.exists():
         shutil.rmtree(TMP)
     TMP.mkdir()
@@ -334,11 +338,26 @@ def evaluate(idx, bs=16):
     model.eval()
     order = idx[np.argsort([len(val_ids[i]) for i in idx], kind="stable")]
     out = np.zeros((len(val_ids), len(classes)), dtype=np.float32)
-    for s in range(0, len(order), bs):
+    s = 0
+    while s < len(order):  # on a GPU out-of-memory the batch is halved and the same rows retried (8B on 8 GB)
         b = order[s:s + bs]
-        x, m = collate(val_ids, b)
-        out[b] = logits_of(x, m).float().cpu().numpy()
+        oom = False
+        try:
+            x, m = collate(val_ids, b)
+            out[b] = logits_of(x, m).float().cpu().numpy()
+        except torch.cuda.OutOfMemoryError:
+            if bs == 1:
+                raise
+            oom = True
+        if oom:
+            x = m = None
+            torch.cuda.empty_cache()
+            bs //= 2
+            P(f"evaluation ran out of GPU memory: batch size now {bs}")
+            continue
+        s += len(b)
     model.train()
+    torch.cuda.empty_cache()
     return out
 
 
