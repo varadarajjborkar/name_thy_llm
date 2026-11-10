@@ -106,8 +106,11 @@ def launch_detached():
     children in a kill-on-close job). WMI-created processes are not part of that job.
     """
     cmd = f'"{PY}" "{Path(__file__).resolve()}" --run {run} _supervise'.replace("'", "''")
-    ps = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments "
-          f"@{{CommandLine='{cmd}'; CurrentDirectory='{ROOT}'}}; if ($r.ReturnValue -ne 0) {{ exit 1 }}; $r.ProcessId")
+    # ShowWindow 0: no console window (on Windows 11 each one opens a Windows Terminal window, and closing it kills the run)
+    ps = ("$si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0}; "
+          "$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments "
+          f"@{{CommandLine='{cmd}'; CurrentDirectory='{ROOT}'; ProcessStartupInformation=$si}}; "
+          "if ($r.ReturnValue -ne 0) { exit 1 }; $r.ProcessId")
     out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True)
     if out.returncode != 0 or not out.stdout.strip().split():
         raise SystemExit(f"could not start the supervisor: {out.stderr.strip() or out.stdout.strip()}")
