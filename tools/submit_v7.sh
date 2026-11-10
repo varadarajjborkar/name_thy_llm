@@ -17,13 +17,14 @@ PARITY_V=8
 PY=.venv/Scripts/python.exe
 SYSPY="$HOME/AppData/Local/Programs/Python/Python311/python.exe"  # has the kaggle SDK
 NB=kernel_qwen/ntl_qwen_blend.py
-LOCK=logs/submit_v7.lock  # one chain at a time: two chains once submitted the same version twice (2026-11-10)
-if ! ( set -o noclobber; echo $$ > "$LOCK" ) 2>/dev/null; then
-  other=$(cat "$LOCK" 2>/dev/null)
-  if [[ -n "$other" ]] && kill -0 "$other" 2>/dev/null; then echo "another submit chain (pid $other) is running; not starting"; exit 1; fi
-  echo $$ > "$LOCK"  # stale lock from a chain that died
+LOCK=logs/submit_v7.lock.d  # one chain at a time: two chains once submitted the same version twice (2026-11-10)
+take_lock() { mkdir "$LOCK" 2>/dev/null && echo $$ > "$LOCK/pid"; }  # mkdir is atomic: only one chain gets it
+if ! take_lock; then
+  sleep 2; other=$(cat "$LOCK/pid" 2>/dev/null)  # wait out a holder that has made the dir but not written its pid
+  if [[ -z "$other" ]] || kill -0 "$other" 2>/dev/null; then echo "another submit chain (pid ${other:-?}) holds $LOCK; not starting"; exit 1; fi
+  rm -rf "$LOCK"; take_lock || { echo "lost the race for $LOCK; not starting"; exit 1; }  # stale lock from a dead chain
 fi
-trap '[[ "$(cat "$LOCK" 2>/dev/null)" == "$$" ]] && rm -f "$LOCK"' EXIT
+trap '[[ "$(cat "$LOCK/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$LOCK"' EXIT
 say() { echo "$(date '+%Y-%m-%d %H:%M') $*" | tee -a "$LOG"; }
 fail() { say "STOP: $*"; exit 1; }
 status() { kaggle kernels status "$K" 2>&1 | grep -o 'KernelWorkerStatus\.[A-Z_]*' | head -1; }
