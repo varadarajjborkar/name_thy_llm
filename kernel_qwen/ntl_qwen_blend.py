@@ -254,6 +254,7 @@ if qwen_names:
 
     OPTIONAL = {"k8all"}  # new members: on any failure the run falls back to the blend without them (v7)
     for name in qwen_names:
+        err = None
         try:
             members[f"qwen:{name}"] = qwen_scores(find(f"{name}__weights.pt")[: -len("__weights.pt")])
             check_member(f"qwen:{name}", members[f"qwen:{name}"])
@@ -261,13 +262,15 @@ if qwen_names:
         except Exception as e:
             if name not in OPTIONAL:
                 raise
+            err = f"{type(e).__name__}: {e}"
+        if err:  # cleaned up OUTSIDE the except block: there the traceback still holds the half-loaded model
             members.pop(f"qwen:{name}", None)
             WEIGHTS.pop(f"qwen:{name}", None)
-            SUMMARY[f"member_error_{name}"] = f"{type(e).__name__}: {e}"[:500]
+            SUMMARY[f"member_error_{name}"] = err[:500]
             import gc
             gc.collect()
             torch.cuda.empty_cache()
-            stage(f"qwen {name} FAILED, dropped from the blend", error=f"{type(e).__name__}: {e}"[:300])
+            stage(f"qwen {name} FAILED, dropped from the blend", error=err[:300], gpu_after=gpu_mem())
 
 # ---------------------------------------------------------------- TF-IDF SVM (fit here on train.csv)
 if "svm" in WEIGHTS:
