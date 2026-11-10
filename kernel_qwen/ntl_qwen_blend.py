@@ -30,7 +30,8 @@ ROOT = os.environ.get("NTL_ROOT", "/kaggle/input")
 # 0.639, s4 weight 0.5 (old families 0.1 each) 0.663; s4 alone on fold 0 0.617 vs 0.567 / 0.567 / 0.559.
 WEIGHTS = {"qwen:s4all": (0.5, 1.0), "qwen:s2all": (0.1, 1.0), "qwen:s3all": (0.1, 1.0), "qwen:h3s2all": (0.1, 1.0),
            "svm": (0.1, 3.0), "lgbm": (0.1, 1.0),
-           "atlas": (0.15, 1.0)}  # v7: on top of the v6 weights (they sum to 1), as evaluated out of fold
+           "atlas": (0.15, 1.0),  # v7: on top of the v6 weights (they sum to 1), as evaluated out of fold
+           "qwen:k8all": (0.2, 1.0)}  # v8: Qwen3-8B stage 2 on top of v7: OOF +0.88, all 4 folds up (research/blend_8b.py)
 SINKHORN = True
 SINK_ALPHA = 0.45  # LB history: full sinkhorn + centering w0.5 = 0.572 (v5)
 PARITY = os.environ.get("NTL_PARITY", "0") == "1"  # pipeline check only (env switch for local tests); never in a submission
@@ -173,10 +174,22 @@ if qwen_names:
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
     from transformers import AutoConfig, AutoModel, AutoTokenizer, BitsAndBytesConfig
 
-    MODEL = BASE_DIR
-    tok = AutoTokenizer.from_pretrained(MODEL)
-    if tok.pad_token is None:
-        tok.pad_token = tok.eos_token
+    TOKS = {}
+
+    def base_for(args):
+        """The member's own base model, from the trainer's args (an 8B member names qwen3-8b-base). The 4B base is
+        staged to local disk; the 8B is read from the Kaggle Model mount (staff: the slow cache affects datasets)."""
+        if "8b" in os.path.basename(str(args.get("model", "")).replace("\\", "/").rstrip("/")).lower():
+            return os.path.dirname(find("config.json", "8b-base"))
+        return BASE_DIR
+
+    def tok_for(path):
+        if path not in TOKS:
+            t = AutoTokenizer.from_pretrained(path)
+            if t.pad_token is None:
+                t.pad_token = t.eos_token
+            TOKS[path] = t
+        return TOKS[path]
     LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
     class MultiScale(torch.nn.Module):  # identical to finetune/train.py so the saved names line up
@@ -198,6 +211,9 @@ if qwen_names:
     def qwen_scores(prefix):  # files <prefix>__weights.pt, __args.json, __classes.json (Kaggle flattens folders)
         args = json.load(open(f"{prefix}__args.json"))
         assert json.load(open(f"{prefix}__classes.json")) == classes, "class order differs"
+        MODEL = base_for(args)
+        tok = tok_for(MODEL)
+        P(f"member {os.path.basename(prefix)}: base {MODEL}")
         cfg = AutoConfig.from_pretrained(MODEL)
         cfg.num_hidden_layers = args["layers"] or cfg.num_hidden_layers
         if getattr(cfg, "layer_types", None):
