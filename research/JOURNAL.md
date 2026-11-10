@@ -290,3 +290,8 @@ v7 submitted 2026-11-10 11:11 IST (kernel version 10, ref 58188309). Version 9 n
 version 10 ran within minutes. Kaggle only accepts a version whose own run has finished and written submission.parquet
 ("Notebook is still running. Did not find provided Notebook Output File"). The CLI no longer prints "Successfully
 submitted", so the chain now treats the submissions list as the proof.
+v7 public LB 0.571 (v5 0.572). Out of fold, v7 vs v5 should be about +2 (s4 family +1, ATLAS +1.08); the LB shows 0.
+Possible reasons: public-LB noise (a few hundred rows give an SE of roughly 1.5 to 2 pts, so +2 is inside it), or the
+ATLAS member / s4 weight not transferring to the hidden test. One LB point cannot separate them; do not tune to it.
+Mistake: v7 was submitted twice (refs 58188309 and 58188319, 26 s apart, both 0.571). A chain "stopped" from the
+harness kept running in its bash child and submitted alongside the resumed chain. submit_v7.sh now holds a lock file.

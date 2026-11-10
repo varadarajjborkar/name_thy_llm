@@ -20,11 +20,12 @@ for job in "k8f0 0" "k8f1 1" "k8f2 2" "k8f3 3" "k8all -2"; do
     --init "$INIT" --lr 1e-4 --head-lr 1e-3 --epochs 2 --eval-n 0 --eval-every 1000000 --ckpt-every 50 \
     --cv-fold "$fold" >> "$LOG" 2>&1 || fail "ctl start failed for $run"
   for _ in $(seq 1 360); do  # 30 s polls, at most 3 h per run
-    [[ -f "$d/DONE_TRAINING" || -f "$d/HALTED" ]] && break
+    [[ -f "$d/DONE_TRAINING" || -f "$d/HALTED" || -f "$d/PAUSE" || -f "$d/STOP" ]] && break
     sleep 30
   done
   [[ -f "$d/HALTED" ]] && fail "$run halted (see $d/supervisor.log)"
-  [[ -f "$d/DONE_TRAINING" ]] || fail "$run did not finish within 3 h"
+  [[ -f "$d/PAUSE" || -f "$d/STOP" ]] && fail "$run was paused or stopped; rerun this script to resume (finished runs are skipped)"
+  [[ -f "$d/DONE_TRAINING" ]] || { "$PY" finetune/ctl.py --run "$run" pause >> "$LOG" 2>&1; fail "$run did not finish within 3 h (pause requested)"; }
   say "$run done: $(tail -1 "$d/train.log")"
 done
 say "STAGE2 8B DONE"
