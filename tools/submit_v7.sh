@@ -31,7 +31,7 @@ with a.build_kaggle_client() as k:
 }
 wait_done() {  # waits for a terminal status of the latest run; at most 6 h
   local s=""
-  for _ in $(seq 1 180); do
+  for _ in $(seq 1 "$WAIT_LOOPS"); do
     s=$(status)
     case "$s" in *COMPLETE|*ERROR|*CANCEL*) break ;; esac
     sleep 120
@@ -45,7 +45,14 @@ fetch() {  # fetch <version> <dir>: version-pinned output
 }
 
 NB_HASH=$(md5sum "$NB" | cut -d' ' -f1)
-if [[ "${SKIP_PARITY:-0}" == "1" ]]; then  # user decision 2026-11-09: save Kaggle GPU quota, rely on the local tests
+WAIT_LOOPS=${WAIT_LOOPS:-180}  # 2-minute polls in wait_done (180 = 6 h)
+if [[ -n "${RESUME_V:-}" ]]; then  # resume: an already-pushed version is queued; do not push again (that re-queues it)
+  [[ -n "${RESUME_PUSH_UTC:-}" ]] || fail "RESUME_V needs RESUME_PUSH_UTC (UTC time of that push)"
+  v=$RESUME_V; PUSH_UTC=$RESUME_PUSH_UTC
+  say "chain resumed (notebook md5 $NB_HASH): waiting for already-pushed version $v (pushed $PUSH_UTC UTC), up to $((WAIT_LOOPS * 2)) min"
+  [[ "$(current_version)" == "$v" ]] || fail "latest kernel version is not $v; something else was pushed"
+  grep -q '^PARITY = os.environ.get("NTL_PARITY", "0") == "1"' "$NB" || fail "notebook PARITY default is not off"
+elif [[ "${SKIP_PARITY:-0}" == "1" ]]; then  # user decision 2026-11-09: save Kaggle GPU quota, rely on the local tests
   say "chain started (notebook md5 $NB_HASH): Kaggle parity skipped (local parity tests passed); waiting for version $PARITY_V to stop"
   s=$(wait_done); say "version $PARITY_V status: $s"
 else
@@ -83,6 +90,7 @@ EOF
 say "parity checks passed"
 fi
 
+if [[ -z "${RESUME_V:-}" ]]; then
 [[ "$(md5sum "$NB" | cut -d' ' -f1)" == "$NB_HASH" ]] || fail "notebook changed since the chain started"
 grep -q '^PARITY = os.environ.get("NTL_PARITY", "0") == "1"' "$NB" || fail "notebook PARITY default is not off"
 PUSH_UTC=$(date -u '+%Y-%m-%d %H:%M:%S')
@@ -97,6 +105,7 @@ for _ in $(seq 1 40); do  # the status shows the previous run (COMPLETE or CANCE
   s=$(status); case "$s" in *QUEUED|*RUNNING) started=1; break ;; esac; sleep 30
 done
 [[ $started -eq 1 ]] || fail "version $v did not start within 20 minutes (last status $s)"
+fi
 s=$(wait_done); say "real run (version $v) status: $s"
 [[ "$s" == *COMPLETE ]] || fail "real run did not complete"
 fetch "$v" logs/v7_real_out || fail "could not download the version $v output"
@@ -123,7 +132,7 @@ n=$(echo "$table" | awk -F, -v d="$today" '$1 ~ /^[0-9]+$/ && substr($3, 1, 10) 
 say "submissions today (UTC $today) before submitting: $n"
 [[ "$n" -lt 5 ]] || fail "daily limit reached; submit after 05:30 IST"
 res=$(kaggle competitions submit name-that-llm -k "$K" -v "$v" -f submission.parquet \
-  -m "v7: v6 + ATLAS base-LM likelihood member at 0.15 (OOF +1.08 seed-averaged, every fold up); Kaggle parity checked" 2>&1)
+  -m "v7: v6 + ATLAS base-LM likelihood member at 0.15 (OOF +1.08 seed-averaged, every fold up); parity checked locally" 2>&1)
 rc=$?
 say "submit (rc $rc): $(echo "$res" | grep -v Warning)"
 [[ $rc -eq 0 ]] && echo "$res" | grep -q "Successfully submitted" || fail "submit was not accepted"
