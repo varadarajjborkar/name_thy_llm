@@ -6,7 +6,8 @@
 #      wait until that run has started and finished, check ITS output: parity off, started after the push,
 #      ATLAS in the blend at 0.15, every stage present, no errors, written rows = test rows
 #   3. count today's submissions from the date column (UTC day; fail closed) and submit only if fewer than 5;
-#      success requires exit code 0, "Successfully submitted" and a new "v7:" row in the submissions list
+#      success requires exit code 0, no error text, and one more "v7:" row today in the submissions list than before
+#      (newer kaggle CLIs print nothing on success)
 # Log: logs/submit_v7.log (the governor watches it; it ends with "SUBMITTED v7" or "STOP:").
 set -u
 cd "$(dirname "$0")/.."
@@ -53,7 +54,7 @@ if [[ -n "${RESUME_V:-}" ]]; then  # resume: an already-pushed version is queued
   [[ "$(current_version)" == "$v" ]] || fail "latest kernel version is not $v; something else was pushed"
   grep -q '^PARITY = os.environ.get("NTL_PARITY", "0") == "1"' "$NB" || fail "notebook PARITY default is not off"
   s=$(status)  # the status belongs to the latest version (checked above); a stale terminal status cannot be another run's
-  case "$s" in *QUEUED|*RUNNING|*COMPLETE) ;; *) fail "version $v is not queued, running or complete (status $s)" ;; esac
+  case "$s" in *NEW_SCRIPT|*QUEUED|*RUNNING|*COMPLETE) ;; *) fail "version $v is not queued, running or complete (status $s)" ;; esac
 elif [[ "${SKIP_PARITY:-0}" == "1" ]]; then  # user decision 2026-11-09: save Kaggle GPU quota, rely on the local tests
   say "chain started (notebook md5 $NB_HASH): Kaggle parity skipped (local parity tests passed); waiting for version $PARITY_V to stop"
   s=$(wait_done); say "version $PARITY_V status: $s"
@@ -133,6 +134,8 @@ echo "$table" | grep -q '^ref,fileName,date' || fail "could not read the submiss
 n=$(echo "$table" | awk -F, -v d="$today" '$1 ~ /^[0-9]+$/ && substr($3, 1, 10) == d {c++} END {print c + 0}')
 say "submissions today (UTC $today) before submitting: $n"
 [[ "$n" -lt 5 ]] || fail "daily limit reached; submit after 05:30 IST"
+V7ROWS='$1 ~ /^[0-9]+$/ && substr($3, 1, 10) == d && /"v7: v6 \+ ATLAS/ {c++} END {print c + 0}'
+n1=$(echo "$table" | awk -F, -v d="$today" "$V7ROWS")  # v7 rows already there today: success needs one more
 res=$(kaggle competitions submit name-that-llm -k "$K" -v "$v" -f submission.parquet \
   -m "v7: v6 + ATLAS base-LM likelihood member at 0.15 (OOF +1.08 seed-averaged, every fold up); parity checked locally" 2>&1)
 rc=$?
@@ -140,6 +143,6 @@ say "submit (rc $rc): $(echo "$res" | grep -v Warning)"
 # newer kaggle CLIs print nothing on success (2026-11-10), so the submissions list is the proof, not the message
 [[ $rc -eq 0 ]] && ! echo "$res" | grep -qiE "error|not allowed" || fail "submit was not accepted"
 sleep 20
-n2=$(kaggle competitions submissions -c name-that-llm --csv 2>&1 | awk -F, -v d="$today" '$1 ~ /^[0-9]+$/ && substr($3, 1, 10) == d && /"v7: v6 \+ ATLAS/ {c++} END {print c + 0}')
-[[ "$n2" -ge 1 ]] || fail "no v7 row for today in the submissions list (check by hand before resubmitting)"
+n2=$(kaggle competitions submissions -c name-that-llm --csv 2>&1 | awk -F, -v d="$today" "$V7ROWS")
+[[ "$n2" -gt "$n1" ]] || fail "no v7 row for today in the submissions list (check by hand before resubmitting)"
 say "SUBMITTED v7 (kernel version $v)"
