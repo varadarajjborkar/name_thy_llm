@@ -252,10 +252,22 @@ if qwen_names:
         assert np.isfinite(out).all(), "non-finite Qwen logits"
         return out
 
+    OPTIONAL = {"k8all"}  # new members: on any failure the run falls back to the blend without them (v7)
     for name in qwen_names:
-        members[f"qwen:{name}"] = qwen_scores(find(f"{name}__weights.pt")[: -len("__weights.pt")])
-        check_member(f"qwen:{name}", members[f"qwen:{name}"])
-        stage(f"qwen {name}", rows=len(test))
+        try:
+            members[f"qwen:{name}"] = qwen_scores(find(f"{name}__weights.pt")[: -len("__weights.pt")])
+            check_member(f"qwen:{name}", members[f"qwen:{name}"])
+            stage(f"qwen {name}", rows=len(test))
+        except Exception as e:
+            if name not in OPTIONAL:
+                raise
+            members.pop(f"qwen:{name}", None)
+            WEIGHTS.pop(f"qwen:{name}", None)
+            SUMMARY[f"member_error_{name}"] = f"{type(e).__name__}: {e}"[:500]
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
+            stage(f"qwen {name} FAILED, dropped from the blend", error=f"{type(e).__name__}: {e}"[:300])
 
 # ---------------------------------------------------------------- TF-IDF SVM (fit here on train.csv)
 if "svm" in WEIGHTS:

@@ -129,7 +129,8 @@ first = s["stages"][0]
 written = next((x for x in s["stages"] if x["stage"] == "written"), {})
 print("real run started", s["started"], "(push", sys.argv[2], ") | stages:", st, "| weights:", w)
 ok = (s["started"] >= sys.argv[2] and first.get("parity") is False and "atlas" in st and "written" in st
-      and w.get("atlas") == 0.15 and written.get("rows") == first.get("test")
+      and w.get("atlas") == 0.15 and w.get("qwen:k8all") == 0.2 and "qwen k8all" in st
+      and written.get("rows") == first.get("test")
       and not any("error" in k for k in s))
 print("REAL RUN CHECK", "PASSED" if ok else "FAILED")
 sys.exit(0 if ok else 1)
@@ -142,15 +143,15 @@ echo "$table" | grep -q '^ref,fileName,date' || fail "could not read the submiss
 n=$(echo "$table" | awk -F, -v d="$today" '$1 ~ /^[0-9]+$/ && substr($3, 1, 10) == d {c++} END {print c + 0}')
 say "submissions today (UTC $today) before submitting: $n"
 [[ "$n" -lt 5 ]] || fail "daily limit reached; submit after 05:30 IST"
-V7ROWS='$1 ~ /^[0-9]+$/ && substr($3, 1, 10) == d && /"v7: v6 \+ ATLAS/ {c++} END {print c + 0}'
+V7ROWS='$1 ~ /^[0-9]+$/ && substr($3, 1, 10) == d && /"v8: v7 \+ Qwen3-8B/ {c++} END {print c + 0}'
 n1=$(echo "$table" | awk -F, -v d="$today" "$V7ROWS")  # v7 rows already there today: success needs one more
 res=$(kaggle competitions submit name-that-llm -k "$K" -v "$v" -f submission.parquet \
-  -m "v7: v6 + ATLAS base-LM likelihood member at 0.15 (OOF +1.08 seed-averaged, every fold up); parity checked locally" 2>&1)
+  -m "v8: v7 + Qwen3-8B stage-2 member at 0.2 (OOF +0.88, all 4 folds up; fp16 check 99.5% agreement)" 2>&1)
 rc=$?
 say "submit (rc $rc): $(echo "$res" | grep -v Warning)"
 # newer kaggle CLIs print nothing on success (2026-11-10), so the submissions list is the proof, not the message
 [[ $rc -eq 0 ]] && ! echo "$res" | grep -qiE "error|not allowed" || fail "submit was not accepted"
 sleep 20
 n2=$(kaggle competitions submissions -c name-that-llm --csv 2>&1 | awk -F, -v d="$today" "$V7ROWS")
-[[ "$n2" -gt "$n1" ]] || fail "no v7 row for today in the submissions list (check by hand before resubmitting)"
-say "SUBMITTED v7 (kernel version $v)"
+[[ "$n2" -gt "$n1" ]] || fail "no v8 row for today in the submissions list (check by hand before resubmitting)"
+say "SUBMITTED v8 (kernel version $v)"
