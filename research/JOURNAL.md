@@ -357,3 +357,17 @@ research/blend_t4.py (copy of blend_8b.py, 8B family swapped for t4f0-3), folds 
 Replacing s4 with t4 (0.5): 0.6167 (-3.24, 0/4 folds up). Adding t4 on top of s4: +0.19 to +0.23 at w 0.1-0.3,
 2-3/4 folds up, below the +0.5 keep bar (and the 8B's +0.88 out of fold gave 0 on the LB). Not submitted.
 Estimated LB if swapped in: about 0.54 (v7 0.571 minus the OOF drop).
+
+### Was t4 weak only because the blend was tuned to s4? Train-only blend (2026-11-12)
+research/blend_trainonly.py, folds 0-3, notebook post, weights by coordinate ascent, nested (chosen on 3 folds).
+- v7 as shipped 0.6491 (SPARSE post 0.601). v7 members re-tuned with s4: nested 0.6491.
+- Q1, v7 members with t4 in place of s4, re-tuned: nested 0.6426; the tuner gives t4 0.05 and leans on s2mix. So it
+  was not tuning: t4 is the weakest member (0.398 alone vs s4 0.597).
+- Q2, every member train.csv only (t4, svm4 host, style LGBM cv, ATLAS host-only, letters LR): nested 0.5236,
+  SPARSE post 0.483, vs t4 alone + post 0.4866 (+3.7). Letters and SVM carry the gain. Estimated LB about 0.47.
+- TRACE fingerprints (arXiv 2603.28054: rank / entropy / surprise transition pairs, LR and the paper's 1-NN to one
+  reference per LLM): alone 0.117 / 0.119, blend +0.05. Short texts (50-330 tokens) are far below the ~10K tokens
+  the paper needs for a stable fingerprint. Dropped.
+- Checker: no leakage or alignment bugs; issue 88 (SPARSE uses in-sample weights) and 89 (second-order stacking leak
+  in nested weights, < 0.005) are caveats, not errors.
+Conclusion: train.csv alone tops out about 12 pts below the external-data blend; the data, not tuning, is the gap.
