@@ -331,3 +331,17 @@ s4ff recipe without stage 1 (no --init). Folds 0.402 / 0.389 / 0.424 / 0.376, OO
 Same folds for s4ff (stage 1 on external pool, then stage 2): raw 0.597, post 0.640, company 0.749.
 So external data is worth about +15 points after post; post helps the train-only model far more (+9 vs +4).
 Train-only Qwen still beats every hand-made signal at company level (best probe 0.60).
+
+### Shift-aware validation explains tree1 (2026-11-12 00:15)
+Sources: Geirhos et al. 2020 "Shortcut Learning" (sent by the user); mizuno0522's public notebook ("test prompts
+appear to have only a few answers each"; group assignment +0.06 CV, no LB gain; char+word TF-IDF LinearSVC LB 0.345);
+Kaggle Data page: test has only id + text, unseen prompts, ~4000 rows, unequal and public/private-different model mix.
+research/tree2_eval.py scores each fold twice: FULL (all 18 per prompt, as train.csv) and SPARSE (2-6 texts per prompt,
+Dirichlet model mix, groups found on the subset, 3 draws). tree1's design: FULL 0.376, SPARSE 0.269, real LB 0.263.
+So SPARSE is the first local number that predicts the LB; centering's +10 is a train.csv-structure shortcut.
+SPARSE raw: style trees 0.26-0.27, + next-word averages 0.287, + signal 0.287, letter chunks (char_wb 2-5 TF-IDF + LR)
+0.304, blend 0.3 tree + 0.7 letters 0.321 (pick is optimistic). Company under SPARSE about 0.55 at best.
+Next-word "signal processing" features (features/signal_feats.py: GLTR ranks, FFT of surprise, autocorrelation,
+runs): company 0.274 raw / 0.337 centered alone, +0 on top of style + next-word averages.
+Checker issues on tree2_eval: SPARSE subsets (~120 rows) are below MIN_POST_ROWS so post never runs there; pooling
+the 4 folds' sparse subsets into one ~480-row set is the fix.
