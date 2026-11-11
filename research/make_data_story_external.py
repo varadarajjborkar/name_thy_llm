@@ -28,7 +28,7 @@ This notebook asks: **does the outside data behave like the Kaggle data?** If it
 |---|---|---|---|
 | **Kaggle** | `train.csv` from the competition | 2,699 | stage 2 (the polish) and all scoring |
 | **Open pool** | `pool_typo_60k`: 60,000 texts picked from a big community pool (many Kaggle users' generated sets), filtered to match Kaggle's punctuation style | 60,000 | stage 1 of all our Qwen models |
-| **Hostlike** | prvsiyan's extended dataset: one person sent ~800 new prompts to all 18 models, logging every call | 6,897 | added to stage 1 for some models (k_host, the 8B) |
+| **Hostlike** | prvsiyan's extended dataset: one person sent new prompts (598 prompt groups in the part we use) to the 18 models, logging every call | 6,897 | added to stage 1 for some models (k_host, the 8B) |
 
 **Colours:** in this notebook the colour of a **dot** means the **dataset**:
 - **black** is Kaggle
@@ -93,7 +93,7 @@ plt.tight_layout(); plt.show()
 
 md("""
 **What this shows:**
-- The **open pool** was sampled to be perfectly balanced, so its dots sit right on the dotted line, like Kaggle.
+- The **open pool** was sampled to be balanced (5.4% to 5.6% per model), so its dots sit on the dotted line, like Kaggle.
 - **Hostlike** is uneven. GPT models have the most texts (about 7%). **gemini-3.7-flash has the fewest (3.5%)**. Remember, that is exactly the model we recognise worst.
 """)
 
@@ -108,7 +108,7 @@ fig, axes = plt.subplots(1, 2, figsize=(13, 5.5), gridspec_kw={"width_ratios": [
 src = D["Open pool"].source_dataset.str.split("/").str[-1].value_counts()
 top = pd.concat([src.head(12), pd.Series({f"{len(src) - 12} other sources": src.iloc[12:].sum()})])
 axes[0].barh(top.index[::-1], top.values[::-1], color=DS_COLOR["Open pool"], height=0.7)
-axes[0].set_title(f"Open pool: {len(src)} different source datasets", loc="left"); axes[0].set_xlabel("texts")
+axes[0].set_title(f"Open pool: {D['Open pool'].source_dataset.nunique()} different source datasets", loc="left"); axes[0].set_xlabel("texts")
 rt = D["Hostlike"].provider_route.value_counts()
 axes[1].barh(rt.index[::-1], rt.values[::-1], color=DS_COLOR["Hostlike"], height=0.7)
 axes[1].set_title("Hostlike: which API route was used", loc="left"); axes[1].set_xlabel("texts")
@@ -131,7 +131,7 @@ How many models answered the same prompt in the outside data?
 
 code(r'''
 grp = {"Kaggle": D["Kaggle"].prompt_id,
-       "Open pool": D["Open pool"].prompt_canon.fillna(D["Open pool"].prompt_group),
+       "Open pool": D["Open pool"].prompt_canon,   # canonical prompt id across sources
        "Hostlike": D["Hostlike"].prompt_group}
 fig, ax = plt.subplots(figsize=(10, 4.5))
 bins = np.arange(0.5, 19.5)
@@ -148,8 +148,8 @@ plt.tight_layout(); plt.show()
 md("""
 **What this shows:**
 - **Kaggle** is one tall bar at 18: almost every prompt was answered by every model.
-- **Open pool** is the opposite. Almost half its prompts were answered by **only one model**. So in the pool, the *topic* can secretly give away the model. For example, if one person only asked Claude about volcanoes, a model can learn "volcano means Claude". That shortcut is useless on Kaggle's test.
-- **Hostlike** is in between. Most prompts were answered by 13 to 18 models, so it is much closer to Kaggle's "same topic for everyone" design.
+- **Open pool** is the opposite. Almost half its prompts (47%) were answered by **only one model** (partly because our 60k is a sample of a bigger pool, so some partner answers were left out). So in the pool, the *topic* can secretly give away the model. For example, if one person only asked Claude about volcanoes, a model can learn "volcano means Claude". That shortcut is useless on Kaggle's test.
+- **Hostlike** is in between. About half its prompts were answered by 13 to 18 models (the middle value is 13), so it is much closer to Kaggle's "same topic for everyone" design.
 """)
 
 
@@ -200,11 +200,13 @@ md("""
 - Even the single closest outside text (max about 0.3 to 0.4) is only as close as an average same-prompt pair.
 - A few percent of open pool texts pass the "same prompt" line. Those are texts on a *nearby* topic (say, another black-hole explanation), not copies of Kaggle prompts.
 
-This was deliberate. The pool was built to remove anything too close to Kaggle's prompts (its `flag_near_train_prompt` column is 0 for every row), and the hostlike author says no competition prompt was used.
+This was deliberate:
+- The pool's builders removed anything too close to Kaggle's texts, using a similarity check much like ours (no pool text scores above 0.30). So for the pool, this chart mostly shows that their filter worked.
+- For **hostlike** it is a real independent check: its author says no competition prompt was used, and the chart agrees.
 
 **Why that matters:**
 - **Good news: no cheating.** Our out-of-fold scores are honest, because the model never saw Kaggle's topics during stage 1.
-- **Bad news:** stage 1 learns style on *other* topics. Kaggle's own texts are needed to adjust it, which is exactly what stage 2 does. That's also why stage 2 gives us about +7 to 8 points.
+- **Bad news:** stage 1 learns style on *other* topics. Kaggle's own texts are needed to adjust it, which is what stage 2 does (stage 2 adds about +7 points). The different topics are probably one reason, but not the only one: chart 6 shows the habits themselves also drift.
 """)
 
 
@@ -284,14 +286,14 @@ md("""
 
 **The rules hold everywhere.**
 - Claude and GLM have **0% curly quotes** in all three datasets.
-- Gemini has **no em dashes** in all three.
+- Gemini has (almost) **no em dashes** in all three (2 in all of Kaggle's 600 Gemini texts).
 - So the "family clues" from the first notebook are real habits of the models, not quirks of Kaggle's data.
 
 **The sizes drift.** These are the places where the outside data teaches a habit that does not match Kaggle:
 - **Curly quotes in gemini-3.1-pro:** only 6% of its Kaggle texts, but about 30% outside. GPT and Qwen also use more curly quotes outside.
 - **Kimi's semicolons:** 8.3 per 1k words in Kaggle, but 4.6 in the pool and 2.9 in hostlike. Kaggle's Kimi behaves differently from outside Kimi, which may be one reason Kimi is often mistaken for GPT.
-- **GPT's sentences:** longer in Kaggle (24 to 26 words) than outside (18 to 22).
-- **Length:** hostlike texts are shorter for nearly every model, and the Geminis most of all (87 to 95 words against 101 to 119).
+- **GPT's sentences:** longer in Kaggle (21 to 26 words) than outside (18 to 22).
+- **Length:** hostlike texts are shorter for nearly every model. Three Geminis (3.1-pro, 3.6, 3.7) drop the most, to 87 to 95 words against 111 to 119 in Kaggle.
 - **A clue the outside data hides:** in Kaggle, **gemini-3.7-flash writes longer texts (117 words) than gemini-3.8-flash (101)**. Outside, the two are almost the same length. So our stage-1 model never learns "longer means 3.7", and the 3.7 vs 3.8 mix-up is our worst error. Only the 150 Kaggle texts per model can teach that clue.
 
 These drifts probably come from different settings (length limits, system prompts, API routes, dates). The same model can write a bit differently depending on how it is called.
@@ -311,7 +313,7 @@ Then we check whether the two lists **agree**:
 - **1.0** means the model has exactly the same word taste in both
 - **0** means no relation at all
 
-Note: Kaggle has only 150 texts per model, so even a perfect copy would not reach 1.0. Think of 0.5 and up as "clearly the same taste".
+To keep the race fair, both outside sets use the **same number of texts per model (240)**, averaged over 3 random draws. With so few texts even a perfect copy would score well below 1.0, so **compare the bars with each other**, not with 1.
 """)
 
 code(r'''
@@ -322,11 +324,15 @@ def word_ratio(d):
     return rate, np.log2((rate + 2e-5).div(rate.mean(axis=1) + 2e-5, axis=0))
 rate_k, ratio_k = word_ratio(D["Kaggle"])
 common = rate_k.index[(rate_k * 150 * 100).sum(axis=1) >= 30]          # words used at least ~30 times in Kaggle
+N_EACH = 240   # same number of texts per model in both outside sets (hostlike's smallest model has 244): a fair race
 agree = {}
 for k in ["Open pool", "Hostlike"]:
-    _, r = word_ratio(D[k] if k == "Hostlike" else D[k].groupby("model").sample(1500, random_state=0))
-    w = common.intersection(r.index)
-    agree[k] = pd.Series({m: np.corrcoef(ratio_k.loc[w, m], r.loc[w, m])[0, 1] for m in MODELS})
+    runs = []
+    for seed in range(3):   # average 3 random samples so one lucky draw can't decide it
+        _, r = word_ratio(D[k].groupby("model").sample(N_EACH, random_state=seed))
+        w = common.intersection(r.index)
+        runs.append(pd.Series({m: np.corrcoef(ratio_k.loc[w, m], r.loc[w, m])[0, 1] for m in MODELS}))
+    agree[k] = pd.concat(runs, axis=1).mean(axis=1)
 A = pd.DataFrame(agree)
 fig, ax = plt.subplots(figsize=(10, 7))
 y = np.arange(len(MODELS))
@@ -341,11 +347,11 @@ print(A.mean().round(2).to_string())
 ''')
 md("""
 **What this shows:**
-- **The open pool agrees more with Kaggle than hostlike does** (average about 0.47 against 0.36). That fits our experiments: adding hostlike to stage 2 made scores worse (about -3 points).
-- **The Geminis keep their word taste best** (about 0.6 to 0.7). Gemini is also the family we never confuse with other families.
-- **Claude (except opus-5), GLM and Kimi keep it worst** (about 0.1 to 0.35). Kimi in hostlike is almost unrelated (0.09). These are exactly the models we mix up most (Claude with GLM, and Kimi with GPT).
+- **The two outside sets tie** (both average 0.31). Neither one copies Kaggle's word taste better overall.
+- **The Geminis and claude-opus-5 keep their word taste best** (about 0.43 to 0.52). Gemini is also the family we never confuse with other families.
+- **Most Claudes, GLM and Kimi keep it worst** (about 0.06 to 0.3). Kimi in hostlike is almost unrelated (0.06). These are the models we mix up most (Claude with GLM, and Kimi with GPT).
 
-So **where the outside data matches Kaggle, our model is good. Where it doesn't, our model struggles.** That's a strong hint about where better data would help.
+So there is a pattern: models whose outside texts match Kaggle's word taste tend to be recognised better. It's a hint, not proof. Matching isn't everything either: adding hostlike to **stage 1** helped (+0.7 to +1.5 points), but adding 3,000 hostlike rows to **stage 2** hurt (about -3 points). Outside data is useful for learning general style, but the final polish works best on Kaggle's own texts.
 """)
 
 
@@ -384,10 +390,11 @@ iu = np.triu_indices(len(MODELS), 1)
 print(f"how well the two grids match (0 = not at all, 1 = identical): {np.corrcoef(G['Kaggle'][iu], G['Open pool'][iu])[0, 1]:.2f}")
 ''')
 md("""
-**What this shows:** the two grids are **almost the same picture**. The match score is 0.95, where 1.0 would be identical.
+**What this shows:** the two grids show **the same big pattern**. The match score is 0.95, where 1.0 would be identical, but that number is mostly driven by the family squares.
 - Gemini is a dark square in both.
-- GPT is a clear square in both.
+- GPT is a square in both, and an even stronger one in the open pool (GPTs look more alike there).
 - GLM sits next to Claude in both. In the open pool the GLM and Claude closeness is even stronger.
+- One difference: in Kaggle, **Kimi looks a bit like GPT**, but in the open pool it hardly does. So the pool doesn't teach the Kimi/GPT look-alike that causes our Kimi mistakes.
 
 So the *big* map of who-resembles-whom is the same everywhere. The outside data teaches the families correctly, and the problems are in the fine details (chart 6).
 
@@ -395,11 +402,11 @@ So the *big* map of who-resembles-whom is the same everywhere. The outside data 
 
 | Question | Answer |
 |---|---|
-| Are the prompts the same as Kaggle's? | **No.** Both outside sets were built to avoid Kaggle's prompts, and the similarity check (chart 4) confirms it. |
-| Is each prompt answered by every model? | Kaggle: yes. Hostlike: mostly. Open pool: **no**, half its prompts have just one model, so topic can act as a false clue there. |
-| Do the big family rules hold outside? | **Yes.** Claude and GLM never use curly quotes, Gemini never uses em dashes, and the family map matches 0.95. |
+| Are the prompts the same as Kaggle's? | **No.** Both outside sets were built to avoid Kaggle's prompts. Chart 4 agrees (for the pool, that mostly confirms its filter worked). |
+| Is each prompt answered by every model? | Kaggle: yes. Hostlike: often (middle value 13 models). Open pool: **no**, almost half its prompts have just one model, so topic can act as a false clue there. |
+| Do the big family rules hold outside? | **Yes.** Claude and GLM never use curly quotes, Gemini (almost) never uses em dashes, and the family map matches 0.95. |
 | Do the fine details match? | **Only partly.** Rates of curly quotes, semicolons, sentence length and text length drift. Some useful Kaggle clues, like 3.7 being longer than 3.8, are missing outside. |
-| Which outside set is more Kaggle-like? | The **open pool** matches word taste better (0.47 against 0.36). Hostlike has the better prompt design (many models per prompt), but is shorter and drifts more. |
+| Which outside set is more Kaggle-like? | **About a tie** on word taste (0.31 each, compared fairly). Hostlike has the better prompt design (many models per prompt), but its texts are shorter, and its Kimi is very unlike Kaggle's Kimi. |
 
 **Big picture:** outside data is great for learning the **families**. But the **sibling differences** that Kaggle's test needs are partly *different* outside. That's why the short stage 2 on Kaggle's own 2,699 texts is so important, and why the remaining errors sit among the siblings.
 """)
