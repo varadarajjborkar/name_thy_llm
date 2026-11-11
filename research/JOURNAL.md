@@ -316,3 +316,11 @@ Two experiments, no external data:
    Parity: kernel and CV differed by 1 point from 1e-14 float dust in the features (LightGBM bins ties); fixed by
    rounding X to 9 decimals; LightGBM now averages 3 seeds. Kernel fold-0 parity then matches exactly (0.3667).
 2. Qwen3-4B fine-tuned on train.csv only (tools/trainonly_4b.sh, runs t4f0-3 + t4all, s4ff recipe without --init).
+
+### tree1 on the leaderboard (2026-11-11 22:00 IST)
+Kernel ntl-tree v1 (company-first, centered style features, LightGBM/ET nodes, alpha 0.5): public LB 0.263.
+CV folds 0-3 0.376, lockbox fold 4 0.345, so LB is 8-11 points under. The Qwen blend shows a similar CV-to-LB gap
+(v7 OOF 0.649 vs LB 0.571), so part of it is the general shift between train.csv and the hidden test; the rest is
+likely that centered-only features depend fully on the test's prompt groups. Company-level probe
+(research/company_probe.py, logs/company_probe.log): every signal tops out near 0.60 company balanced accuracy
+(style 0.574, centered chars 0.596, centered words 0.537, next-word stats + style 0.601).
