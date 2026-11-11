@@ -73,7 +73,7 @@ md("""
 Before looking for clues, check the basics.
 - If one model had far more texts than the others, a lazy guesser could just always pick that model.
 - Here every model has about **150 texts**.
-- Each of the 150 prompts (questions) was answered by **all 18 models**.
+- Each of the 150 prompts (questions) was answered by **all 18 models** (except one prompt that has 17; that is why claude-fable-5 has 149).
 
 That second point matters a lot. The **topic can never give the answer away**, because every model wrote about every topic. The only clues are *how* each model writes.
 """)
@@ -108,9 +108,9 @@ plt.tight_layout(); plt.show()
 ''')
 
 md("""
-**What this shows:** the boxes **overlap almost completely**. Every model writes a short paragraph of roughly 80 to 120 words.
+**What this shows:** the boxes **overlap almost completely**. Every model writes one short paragraph, typically around 85 to 115 words (single texts range from about 55 to 180).
 
-So **length is a useless clue**. Something else must give them away.
+So **length is a very weak clue**. Knowing the length barely narrows down the model. Something else must give them away.
 
 (Also, no model ever uses headings, bullet points, bold text, tables, emoji or even line breaks. Every text is one plain paragraph, so formatting gives no clues either.)
 """)
@@ -210,9 +210,10 @@ md("""
 **What this shows:** the dots group into **islands by colour**.
 - **Bottom right:** Claude and GLM (lots of dashes, no curly quotes).
 - **Top middle:** GPT (few dashes, many curly quotes).
-- **Bottom left:** Gemini and Qwen (no dashes).
+- **Left edge:** Gemini and Qwen (almost no dashes). Qwen sits right among the Geminis here, so these two clues can't separate Qwen from Gemini.
+- **Middle:** Kimi, on its own (some dashes, some curly quotes).
 
-With only two simple counts you can already guess the family quite well. But look *inside* an island: the GPTs sit right on top of each other, and so do the Geminis. These two clues can't separate versions.
+With only two simple counts you can already guess the family quite well. But look *inside* an island. The Claude and GLM dots sit in one crowded row. The GPTs bunch together too. The Geminis spread up and down the left edge (6% to 31% curly quotes), but they still overlap with Qwen. Mostly, these two clues can't separate versions.
 """)
 
 md("""
@@ -256,14 +257,16 @@ plt.tight_layout(); plt.show()
 ''')
 
 md("""
-**What this shows:** look for the **orange blocks along the diagonal**. Each family's words light up mostly under that family's own models.
+**What this shows:** look for the **orange blocks along the diagonal**.
+- The words picked for Claude, Gemini and GPT light up mostly under their own family.
+- **GLM's** words also light up under Claude. This is the same Claude/GLM likeness again.
 
 The list printed above the chart gives each family's top 5 words. They hint at a "personality" for each family:
 - **Gemini** goes big and dramatic (words like *vibrant, tapestry, monumental, massive*).
 - **GPT** is practical and explains things (*make, practical, useful, mean*).
 - **Claude** is thoughtful and careful (*barely, consider, notice, since*).
 
-Kimi and Qwen are single models, so their rows show only that one model's pet words.
+GLM, Kimi and Qwen have no clear theme. Kimi and Qwen are single models, so their picks are just whatever words that one model happened to repeat on these 150 prompts. Treat them as noise, not personality.
 
 These are the kinds of patterns our AI models learn automatically, just with thousands of words at once instead of five.
 """)
@@ -299,9 +302,11 @@ plt.tight_layout(); plt.show()
 
 md("""
 **What this shows:** orange **squares along the diagonal**, but they are not equally strong.
-- **Gemini** is one big dark-orange square. All four Gemini models write almost the same way.
+- **Gemini** is the darkest square. The three Flash models (3.6, 3.7, 3.8) are near twins; 3.1-pro is a bit further away.
 - **GPT** is also a clear orange square: the five GPTs are close siblings.
-- **Claude's** square is much paler. The Claude versions are *less* alike than the Geminis are. That is good news: different versions are easier to tell apart. Chart 7 confirms it.
+- **Claude's** square is much paler. On whole style, the Claude versions are *less* alike than the Geminis are.
+
+Careful: "less alike on average" does not mean "easy to tell apart". In chart 7, Claude and Gemini end up with about the same average score (66% vs 61% correct). The trouble just sits in different places.
 - **GLM** looks a bit like Claude (orange cells between them), and **Kimi and Qwen** lean slightly towards GPT.
 
 Between Gemini and the rest it is deep blue. Gemini has the most "unique" house style of all.
@@ -367,10 +372,12 @@ md("""
 | Favourite words | Yes, also mostly for the **family** |
 | Versions inside a family | Very hard: siblings share almost every habit |
 
-**What this means for the competition:** to climb the leaderboard, we need to get better at telling **siblings apart**. For example:
-- gemini 3.6 vs 3.7 vs 3.8
-- the GPT-5.6 trio (luna, sol and terra)
-- the Claude Opus versions
+**What this means for the competition:** to climb the leaderboard, we need to fix the weakest rows of chart 7:
+- **gemini-3.7-flash** (23% correct, mostly guessed as 3.8)
+- **claude-fable-5** (28%, mostly guessed as GLM) and **glm-5.3** (33%)
+- **gpt-5.6-sol** (42%), which gets mixed with luna and terra
+
+The Claude Opus versions are already among the best (73 to 84% correct).
 
 One idea is a second "specialist" model for each family, trained only to separate its siblings.
 """)
