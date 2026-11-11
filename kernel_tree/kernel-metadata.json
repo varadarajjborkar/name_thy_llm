@@ -1,0 +1,16 @@
+{
+  "id": "varadarajborkar/ntl-tree",
+  "title": "ntl-tree",
+  "code_file": "ntl_tree_kernel.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": false,
+  "dataset_sources": [],
+  "competition_sources": [
+    "name-that-llm"
+  ],
+  "kernel_sources": [],
+  "model_sources": []
+}

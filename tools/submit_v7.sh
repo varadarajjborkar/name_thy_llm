@@ -6,7 +6,8 @@
 #      wait until that run has started and finished, check ITS output: parity off, started after the push,
 #      ATLAS in the blend at 0.15, every stage present, no errors, written rows = test rows
 #   3. count today's submissions from the date column (UTC day; fail closed) and submit only if fewer than 5;
-#      success requires exit code 0, "Successfully submitted" and a new "v7:" row in the submissions list
+#      success requires exit code 0, no error text, and one more "v7:" row today in the submissions list than before
+#      (newer kaggle CLIs print nothing on success)
 # Log: logs/submit_v7.log (the governor watches it; it ends with "SUBMITTED v7" or "STOP:").
 set -u
 cd "$(dirname "$0")/.."
@@ -16,6 +17,14 @@ PARITY_V=8
 PY=.venv/Scripts/python.exe
 SYSPY="$HOME/AppData/Local/Programs/Python/Python311/python.exe"  # has the kaggle SDK
 NB=kernel_qwen/ntl_qwen_blend.py
+LOCK=logs/submit_v7.lock.d  # one chain at a time: two chains once submitted the same version twice (2026-11-10)
+take_lock() { mkdir "$LOCK" 2>/dev/null && echo $$ > "$LOCK/pid"; }  # mkdir is atomic: only one chain gets it
+if ! take_lock; then
+  sleep 2; other=$(cat "$LOCK/pid" 2>/dev/null)  # wait out a holder that has made the dir but not written its pid
+  if [[ -z "$other" ]] || kill -0 "$other" 2>/dev/null; then echo "another submit chain (pid ${other:-?}) holds $LOCK; not starting"; exit 1; fi
+  rm -rf "$LOCK"; take_lock || { echo "lost the race for $LOCK; not starting"; exit 1; }  # stale lock from a dead chain
+fi
+trap '[[ "$(cat "$LOCK/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$LOCK"' EXIT
 say() { echo "$(date '+%Y-%m-%d %H:%M') $*" | tee -a "$LOG"; }
 fail() { say "STOP: $*"; exit 1; }
 status() { kaggle kernels status "$K" 2>&1 | grep -o 'KernelWorkerStatus\.[A-Z_]*' | head -1; }
@@ -52,6 +61,8 @@ if [[ -n "${RESUME_V:-}" ]]; then  # resume: an already-pushed version is queued
   say "chain resumed (notebook md5 $NB_HASH): waiting for already-pushed version $v (pushed $PUSH_UTC UTC), up to $((WAIT_LOOPS * 2)) min"
   [[ "$(current_version)" == "$v" ]] || fail "latest kernel version is not $v; something else was pushed"
   grep -q '^PARITY = os.environ.get("NTL_PARITY", "0") == "1"' "$NB" || fail "notebook PARITY default is not off"
+  s=$(status)  # the status belongs to the latest version (checked above); a stale terminal status cannot be another run's
+  case "$s" in *NEW_SCRIPT|*QUEUED|*RUNNING|*COMPLETE) ;; *) fail "version $v is not queued, running or complete (status $s)" ;; esac
 elif [[ "${SKIP_PARITY:-0}" == "1" ]]; then  # user decision 2026-11-09: save Kaggle GPU quota, rely on the local tests
   say "chain started (notebook md5 $NB_HASH): Kaggle parity skipped (local parity tests passed); waiting for version $PARITY_V to stop"
   s=$(wait_done); say "version $PARITY_V status: $s"
@@ -118,7 +129,8 @@ first = s["stages"][0]
 written = next((x for x in s["stages"] if x["stage"] == "written"), {})
 print("real run started", s["started"], "(push", sys.argv[2], ") | stages:", st, "| weights:", w)
 ok = (s["started"] >= sys.argv[2] and first.get("parity") is False and "atlas" in st and "written" in st
-      and w.get("atlas") == 0.15 and written.get("rows") == first.get("test")
+      and w.get("atlas") == 0.15 and w.get("qwen:k8all") == 0.2 and "qwen k8all" in st
+      and written.get("rows") == first.get("test")
       and not any("error" in k for k in s))
 print("REAL RUN CHECK", "PASSED" if ok else "FAILED")
 sys.exit(0 if ok else 1)
@@ -131,11 +143,15 @@ echo "$table" | grep -q '^ref,fileName,date' || fail "could not read the submiss
 n=$(echo "$table" | awk -F, -v d="$today" '$1 ~ /^[0-9]+$/ && substr($3, 1, 10) == d {c++} END {print c + 0}')
 say "submissions today (UTC $today) before submitting: $n"
 [[ "$n" -lt 5 ]] || fail "daily limit reached; submit after 05:30 IST"
+V7ROWS='$1 ~ /^[0-9]+$/ && substr($3, 1, 10) == d && /"v8: v7 \+ Qwen3-8B/ {c++} END {print c + 0}'
+n1=$(echo "$table" | awk -F, -v d="$today" "$V7ROWS")  # v7 rows already there today: success needs one more
 res=$(kaggle competitions submit name-that-llm -k "$K" -v "$v" -f submission.parquet \
-  -m "v7: v6 + ATLAS base-LM likelihood member at 0.15 (OOF +1.08 seed-averaged, every fold up); parity checked locally" 2>&1)
+  -m "v8: v7 + Qwen3-8B stage-2 member at 0.2 (OOF +0.88, all 4 folds up; fp16 check 99.5% agreement)" 2>&1)
 rc=$?
 say "submit (rc $rc): $(echo "$res" | grep -v Warning)"
-[[ $rc -eq 0 ]] && echo "$res" | grep -q "Successfully submitted" || fail "submit was not accepted"
+# newer kaggle CLIs print nothing on success (2026-11-10), so the submissions list is the proof, not the message
+[[ $rc -eq 0 ]] && ! echo "$res" | grep -qiE "error|not allowed" || fail "submit was not accepted"
 sleep 20
-kaggle competitions submissions -c name-that-llm --csv 2>&1 | grep -q '"v7: v6 + ATLAS' || fail "submit reported success but no v7 row is listed"
-say "SUBMITTED v7 (kernel version $v)"
+n2=$(kaggle competitions submissions -c name-that-llm --csv 2>&1 | awk -F, -v d="$today" "$V7ROWS")
+[[ "$n2" -gt "$n1" ]] || fail "no v8 row for today in the submissions list (check by hand before resubmitting)"
+say "SUBMITTED v8 (kernel version $v)"

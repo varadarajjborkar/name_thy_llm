@@ -286,3 +286,48 @@ pool rows on top of run2) is 0.568, so data volume still matters as much as mode
 Stage 2 from k8b_local started (tools/stage2_8b.sh: k8f0-3 then k8all, s4ff recipe, bs 4 x accum 8).
 v7 (kernel version 9) sat QUEUED on Kaggle for 6 h (no GPU time reserved, quota 4 h left); the chain stopped without
 submitting and was resumed (RESUME_V=9) instead of re-pushing, which would have re-queued it.
+v7 submitted 2026-11-10 11:11 IST (kernel version 10, ref 58188309). Version 9 never left the queue (11.5 h, cancelled);
+version 10 ran within minutes. Kaggle only accepts a version whose own run has finished and written submission.parquet
+("Notebook is still running. Did not find provided Notebook Output File"). The CLI no longer prints "Successfully
+submitted", so the chain now treats the submissions list as the proof.
+v7 public LB 0.571 (v5 0.572). Out of fold, v7 vs v5 should be about +2 (s4 family +1, ATLAS +1.08); the LB shows 0.
+Possible reasons: public-LB noise (a few hundred rows give an SE of roughly 1.5 to 2 pts, so +2 is inside it), or the
+ATLAS member / s4 weight not transferring to the hidden test. One LB point cannot separate them; do not tune to it.
+Mistake: v7 was submitted twice (refs 58188309 and 58188319, 26 s apart, both 0.571). A chain "stopped" from the
+harness kept running in its bash child and submitted alongside the resumed chain. submit_v7.sh now holds a lock file.
+
+### 8B stage 2 and the blend test (main agent, 2026-11-10 16:00)
+k8f0-3 (8B stage 2 from k8b_local, s4ff recipe): 0.574 / 0.563 / 0.607 / 0.620, family raw 0.591 (s4 0.597).
+research/blend_8b.py, folds 0-3, v7 post (centering 0.5 + partial sinkhorn 0.45), ATLAS rebuilt 5-seed as shipped:
+v7 0.6491. Adding the 8B family on top: w 0.1 +0.42, w 0.2 +0.88 (4/4 folds up), w 0.3 +0.83 (4/4), w 0.5 +0.93 (3/4).
+Moving weight from s4 to 8B is worse (0.35/0.35 +0.65, 0.25/0.25 +0.46). Pick: s4 0.5 + 8B 0.2. k8all (full fit) done.
+
+### v8 on the leaderboard (2026-11-10, logged 2026-11-11)
+v8 (v7 + 8B stage-2 member at 0.2, kernel version 11, submitted by the user) public LB 0.571, the same as v7 (0.571)
+and v5 (0.572). The +0.88 out of fold did not show up on the public LB. User decision 2026-11-11: drop the 8B; the
+local 8B base model and 8B weights were deleted (logs and logits kept).
+
+### New direction (user, 2026-11-11): train.csv only
+Two experiments, no external data:
+1. Feature-tree pipeline (tree/ntl_tree.py, research/tree_cv.py): style features without word lists, prompt-centered
+   features (z-score inside label-free prompt groups), company-first trees with a Claude+GLM tree, inverse-frequency
+   weight on the company node, knob search over LightGBM / RandomForest / ExtraTrees.
+   Smoke test: prompt-centering the features lifts a flat LightGBM from 0.293 to 0.380-0.387 (all 4 folds up).
+   Parity: kernel and CV differed by 1 point from 1e-14 float dust in the features (LightGBM bins ties); fixed by
+   rounding X to 9 decimals; LightGBM now averages 3 seeds. Kernel fold-0 parity then matches exactly (0.3667).
+2. Qwen3-4B fine-tuned on train.csv only (tools/trainonly_4b.sh, runs t4f0-3 + t4all, s4ff recipe without --init).
+
+### tree1 on the leaderboard (2026-11-11 22:00 IST)
+Kernel ntl-tree v1 (company-first, centered style features, LightGBM/ET nodes, alpha 0.5): public LB 0.263.
+CV folds 0-3 0.376, lockbox fold 4 0.345, so LB is 8-11 points under. The Qwen blend shows a similar CV-to-LB gap
+(v7 OOF 0.649 vs LB 0.571), so part of it is the general shift between train.csv and the hidden test; the rest is
+likely that centered-only features depend fully on the test's prompt groups. Company-level probe
+(research/company_probe.py, logs/company_probe.log): every signal tops out near 0.60 company balanced accuracy
+(style 0.574, centered chars 0.596, centered words 0.537, next-word stats + style 0.601).
+
+### Qwen3-4B on train.csv only (t4f0-3, 2026-11-11 22:55)
+s4ff recipe without stage 1 (no --init). Folds 0.402 / 0.389 / 0.424 / 0.376, OOF raw 0.398, after the notebook post
+(prompt centering 0.5 + partial sinkhorn 0.45) 0.490, company balanced accuracy 0.673.
+Same folds for s4ff (stage 1 on external pool, then stage 2): raw 0.597, post 0.640, company 0.749.
+So external data is worth about +15 points after post; post helps the train-only model far more (+9 vs +4).
+Train-only Qwen still beats every hand-made signal at company level (best probe 0.60).
