@@ -345,3 +345,9 @@ Next-word "signal processing" features (features/signal_feats.py: GLTR ranks, FF
 runs): company 0.274 raw / 0.337 centered alone, +0 on top of style + next-word averages.
 Checker issues on tree2_eval: SPARSE subsets (~120 rows) are below MIN_POST_ROWS so post never runs there; pooling
 the 4 folds' sparse subsets into one ~480-row set is the fix.
+
+### t4 on the leaderboard (2026-11-12)
+Kernel ntl-t4 v1 (Qwen3-4B fine-tuned on train.csv only, single member + notebook post): public LB 0.434
+(OOF post 0.490, so -5.6). Compare: tree1 0.263, old TF-IDF SVM 0.348, mizuno's char+word TF-IDF SVC 0.345,
+v8 with external data 0.571. Train-only Qwen beats every train-only classical model by about +9 on the LB;
+external data is still worth about +14 on the LB.
