@@ -1,0 +1,45 @@
+  words    C    1: company bal. acc 0.4810
+  words    C    4: company bal. acc 0.4715
+  words    C   16: company bal. acc 0.4668
+  words_c  C    1: company bal. acc 0.5366
+  words_c  C    4: company bal. acc 0.5297
+  words_c  C   16: company bal. acc 0.5216
+  funcw    C    1: company bal. acc 0.4215
+  funcw    C    4: company bal. acc 0.4088
+  funcw    C   16: company bal. acc 0.3960
+  funcw_c  C    1: company bal. acc 0.4433
+  funcw_c  C    4: company bal. acc 0.4359
+  funcw_c  C   16: company bal. acc 0.4160
+  chars    C    1: company bal. acc 0.5332
+  chars    C    4: company bal. acc 0.5239
+  chars    C   16: company bal. acc 0.5106
+  chars_c  C    1: company bal. acc 0.5955
+  chars_c  C    4: company bal. acc 0.5794
+  chars_c  C   16: company bal. acc 0.5622
+  first3   C    1: company bal. acc 0.2433
+  first3   C    4: company bal. acc 0.2375
+  first3   C   16: company bal. acc 0.2326
+
+company balanced accuracy, folds 0-3 out of fold (C picked per set, so slightly optimistic):
+  style_c                      0.5744  folds 0.559 0.586 0.579 0.573
+  words                        0.4810  folds 0.435 0.489 0.502 0.498
+  words_c                      0.5366  folds 0.496 0.561 0.534 0.554
+  funcw                        0.4215  folds 0.408 0.413 0.432 0.433
+  funcw_c                      0.4433  folds 0.418 0.457 0.429 0.469
+  chars                        0.5332  folds 0.513 0.536 0.536 0.548
+  chars_c                      0.5955  folds 0.569 0.606 0.563 0.643
+  first3                       0.2433  folds 0.253 0.222 0.272 0.227
+  words_c + style_c            0.5811  folds 0.575 0.600 0.581 0.569
+  words_c + chars_c + style_c  0.6042  folds 0.591 0.627 0.617 0.581
+  words_c + funcw_c + chars_c + style_c 0.6037  folds 0.594 0.593 0.619 0.608
+  words + chars + style_c      0.5965  folds 0.581 0.611 0.634 0.560
+
+company confusion for words_c + chars_c + style_c (rows true, columns guessed):
+guess   claude  gemini  glm  gpt  kimi  qwen
+true                                        
+claude     456      33   80   17     9     5
+gemini       7     469    0    3     0     1
+glm        111       5  106   10     6     2
+gpt         19      11   11  533     9    17
+kimi        13       1   17   64    24     1
+qwen         5       9    0   62     1    43

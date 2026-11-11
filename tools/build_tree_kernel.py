@@ -25,7 +25,9 @@ out.write_text(
     "# tree/best_config.json or tree/kernel_main.py instead, then rebuild.\n"
     "# ======== features/style_features.py\n" + sf
     + "\n# ======== tree/ntl_tree.py\n" + lib
-    + "\n# ======== tree/best_config.json\nCONFIG = " + json.dumps(config, indent=1) + "\n"
+    # JSON text parsed at run time: true/false/null are not Python names, so the dict is never pasted as code
+    + "\n# ======== tree/best_config.json\nimport json\nCONFIG = json.loads(r'''" + json.dumps(config, indent=1)
+    + "''')\n"
     + "\n" + main, encoding="utf-8")
 compile(out.read_text(encoding="utf-8"), str(out), "exec")
 meta = {"id": "varadarajborkar/ntl-tree", "title": "ntl-tree", "code_file": "ntl_tree_kernel.py",

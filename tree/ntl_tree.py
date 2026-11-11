@@ -55,7 +55,10 @@ def find_groups(texts, n_per_group=18, seed=0):
     groups = np.arange(n) + n  # singletons that never collide with cluster ids
     if n < 2 * n_per_group:
         return groups
-    X = TfidfVectorizer(stop_words="english", sublinear_tf=True, min_df=2, max_df=0.05).fit_transform(texts)
+    try:  # 36-39 texts (max_df * n < min_df) or texts without usable words make TfidfVectorizer raise
+        X = TfidfVectorizer(stop_words="english", sublinear_tf=True, min_df=2, max_df=0.05).fit_transform(texts)
+    except ValueError:
+        return groups  # no grouping: features stay uncentred-equivalent (zeros) and post-processing skips groups
     ok = np.asarray(X.getnnz(axis=1) > 0)
     if ok.sum() >= 2 * n_per_group:
         Z = normalize(TruncatedSVD(min(256, X.shape[1] - 1, int(ok.sum()) - 1), random_state=seed).fit_transform(X[ok]))
