@@ -383,7 +383,7 @@ One idea is a second "specialist" model for each family, trained only to separat
 """)
 
 nb.cells = C
-nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
+nb.metadata["kernelspec"] = {"name": "ntl-venv", "display_name": "Python (name_thy_llm .venv)", "language": "python"}
 out = Path(__file__).with_name("data_story.ipynb")
 nbf.write(nb, out)
 print("wrote", out)
