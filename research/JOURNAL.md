@@ -301,3 +301,18 @@ k8f0-3 (8B stage 2 from k8b_local, s4ff recipe): 0.574 / 0.563 / 0.607 / 0.620, 
 research/blend_8b.py, folds 0-3, v7 post (centering 0.5 + partial sinkhorn 0.45), ATLAS rebuilt 5-seed as shipped:
 v7 0.6491. Adding the 8B family on top: w 0.1 +0.42, w 0.2 +0.88 (4/4 folds up), w 0.3 +0.83 (4/4), w 0.5 +0.93 (3/4).
 Moving weight from s4 to 8B is worse (0.35/0.35 +0.65, 0.25/0.25 +0.46). Pick: s4 0.5 + 8B 0.2. k8all (full fit) done.
+
+### v8 on the leaderboard (2026-11-10, logged 2026-11-11)
+v8 (v7 + 8B stage-2 member at 0.2, kernel version 11, submitted by the user) public LB 0.571, the same as v7 (0.571)
+and v5 (0.572). The +0.88 out of fold did not show up on the public LB. User decision 2026-11-11: drop the 8B; the
+local 8B base model and 8B weights were deleted (logs and logits kept).
+
+### New direction (user, 2026-11-11): train.csv only
+Two experiments, no external data:
+1. Feature-tree pipeline (tree/ntl_tree.py, research/tree_cv.py): style features without word lists, prompt-centered
+   features (z-score inside label-free prompt groups), company-first trees with a Claude+GLM tree, inverse-frequency
+   weight on the company node, knob search over LightGBM / RandomForest / ExtraTrees.
+   Smoke test: prompt-centering the features lifts a flat LightGBM from 0.293 to 0.380-0.387 (all 4 folds up).
+   Parity: kernel and CV differed by 1 point from 1e-14 float dust in the features (LightGBM bins ties); fixed by
+   rounding X to 9 decimals; LightGBM now averages 3 seeds. Kernel fold-0 parity then matches exactly (0.3667).
+2. Qwen3-4B fine-tuned on train.csv only (tools/trainonly_4b.sh, runs t4f0-3 + t4all, s4ff recipe without --init).
