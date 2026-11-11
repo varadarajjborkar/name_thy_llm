@@ -371,3 +371,23 @@ research/blend_trainonly.py, folds 0-3, notebook post, weights by coordinate asc
 - Checker: no leakage or alignment bugs; issue 88 (SPARSE uses in-sample weights) and 89 (second-order stacking leak
   in nested weights, < 0.005) are caveats, not errors.
 Conclusion: train.csv alone tops out about 12 pts below the external-data blend; the data, not tuning, is the gap.
+
+### Calibrated hidden-test simulator (2026-11-12 03:00-04:15 IST, user asleep, autonomous)
+research/test_sim.py: simulated tests drawn from the folds 0-3 OOF rows; model j answers a prompt with probability
+min(1, m w_j), w ~ Dirichlet(alpha); groups found blind exactly as the notebook does. Fitted to three paired LB probes
+(same members, post changed): P1 assignment -3.5, P2 full sinkhorn on TF-IDF -0.4, P3 centering on 3 Qwen families
++1.7. Sigma per probe from the simulated flip fraction on 1600 rows plus Monte Carlo variance; 30 draws per cell,
+common random numbers. Checker issues 90-94 fixed or documented.
+- Full train.csv structure reproduces our OOF (assignment +10, centering +5.3), so the sim is faithful to our CV.
+- Posterior: about 4 passages per test prompt (bimodal: 1.5-2 or 4-6), mix fairly even (alpha >= 2: 85%).
+- v7 under the posterior: raw 59.0, shipped post 59.5 (+0.5 only, vs +5.7 on full OOF). LB 0.571. So the LB is
+  set by raw model quality; post-processing is worth about +1 at most on this test.
+- Best robust post for v7: centering 0.25, clusters N/9, partial sinkhorn 0.45: +0.80 (SE 0.08), positive in every
+  cell with posterior >= 0.05 (worst +0.45). Lighter settings (w 0.25, a 0-0.2, N/5) reach +1.3 but lose in some cells.
+- research/test_sim_p4.py, v7 vs v5 (LB -0.1) as a diagnostic only (it changes members, checker issue 97): the sim
+  predicts +3.8 under P1-P3 (about +2.4 from partial vs full sinkhorn, +1.4 from s4/ATLAS). The 3.9-point gap
+  (about 4 sigma) means v7's changes did not reach the hidden test: the mix may be closer to even than P2 says,
+  and/or the s4/ATLAS member gains shrink on the hidden test.
+- v9 (tools/build_v9_kernel.py): v7 members + the robust post. Also a clean LB probe of post alone vs v7.
+Local GPU: s4 seed ensemble started (tools/s4seeds.sh, seed 7, folds 0-3), with RAM guards (start >= 4 GB free,
+pause if < 1.5 GB twice). The 29.5k unseen pool rows were not used for another stage 1: 8 of 18 models have none.
