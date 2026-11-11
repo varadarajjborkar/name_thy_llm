@@ -324,3 +324,10 @@ CV folds 0-3 0.376, lockbox fold 4 0.345, so LB is 8-11 points under. The Qwen b
 likely that centered-only features depend fully on the test's prompt groups. Company-level probe
 (research/company_probe.py, logs/company_probe.log): every signal tops out near 0.60 company balanced accuracy
 (style 0.574, centered chars 0.596, centered words 0.537, next-word stats + style 0.601).
+
+### Qwen3-4B on train.csv only (t4f0-3, 2026-11-11 22:55)
+s4ff recipe without stage 1 (no --init). Folds 0.402 / 0.389 / 0.424 / 0.376, OOF raw 0.398, after the notebook post
+(prompt centering 0.5 + partial sinkhorn 0.45) 0.490, company balanced accuracy 0.673.
+Same folds for s4ff (stage 1 on external pool, then stage 2): raw 0.597, post 0.640, company 0.749.
+So external data is worth about +15 points after post; post helps the train-only model far more (+9 vs +4).
+Train-only Qwen still beats every hand-made signal at company level (best probe 0.60).
