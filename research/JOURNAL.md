@@ -396,3 +396,10 @@ pause if < 1.5 GB twice). The 29.5k unseen pool rows were not used for another s
 v9 (v7 members; centering 0.25, clusters N/9, partial sinkhorn 0.45; kernel ntl-v9 version 1, ref 58251936):
 public LB **0.580**, new best (v5 0.572, v7 0.571). The simulator predicted +0.80 vs v7 for this exact change; the LB
 gave +0.9. First out-of-sample confirmation of the calibrated simulator. v9 - v7 is a clean post-only probe (P5).
+
+### Simulator refit with P5 and a finer post grid (2026-11-12 05:00 IST)
+research/test_sim_v2.py: P5 = v9 - v7 = +0.9 (clean); simulated +0.80 under the posterior, so the fit holds.
+Posterior unchanged: ~4 passages per prompt, mix fairly even. 96 settings (centering 0.1-0.35, sinkhorn 0.2-0.6,
+clusters 5-12) vs v9: best w0.35_a0.2_g5 +0.73 but -0.77 in the worst plausible cell (lighter sinkhorn wins when the
+mix is uneven, loses when it is even). Decision rule (>= +0.75 and never worse; checker issue 100 selection-bias
+margin): KEEP v9. Checker issue 99 (merge crash after simulation) fixed; analysis rerun from saved draws.
