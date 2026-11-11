@@ -391,3 +391,8 @@ common random numbers. Checker issues 90-94 fixed or documented.
 - v9 (tools/build_v9_kernel.py): v7 members + the robust post. Also a clean LB probe of post alone vs v7.
 Local GPU: s4 seed ensemble started (tools/s4seeds.sh, seed 7, folds 0-3), with RAM guards (start >= 4 GB free,
 pause if < 1.5 GB twice). The 29.5k unseen pool rows were not used for another stage 1: 8 of 18 models have none.
+
+### v9 on the leaderboard (2026-11-12 04:30 IST)
+v9 (v7 members; centering 0.25, clusters N/9, partial sinkhorn 0.45; kernel ntl-v9 version 1, ref 58251936):
+public LB **0.580**, new best (v5 0.572, v7 0.571). The simulator predicted +0.80 vs v7 for this exact change; the LB
+gave +0.9. First out-of-sample confirmation of the calibrated simulator. v9 - v7 is a clean post-only probe (P5).
