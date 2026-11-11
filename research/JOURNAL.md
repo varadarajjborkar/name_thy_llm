@@ -351,3 +351,9 @@ Kernel ntl-t4 v1 (Qwen3-4B fine-tuned on train.csv only, single member + noteboo
 (OOF post 0.490, so -5.6). Compare: tree1 0.263, old TF-IDF SVM 0.348, mizuno's char+word TF-IDF SVC 0.345,
 v8 with external data 0.571. Train-only Qwen beats every train-only classical model by about +9 on the LB;
 external data is still worth about +14 on the LB.
+
+### t4 inside the best blend (2026-11-12)
+research/blend_t4.py (copy of blend_8b.py, 8B family swapped for t4f0-3), folds 0-3, v7 post. v7 0.6491.
+Replacing s4 with t4 (0.5): 0.6167 (-3.24, 0/4 folds up). Adding t4 on top of s4: +0.19 to +0.23 at w 0.1-0.3,
+2-3/4 folds up, below the +0.5 keep bar (and the 8B's +0.88 out of fold gave 0 on the LB). Not submitted.
+Estimated LB if swapped in: about 0.54 (v7 0.571 minus the OOF drop).
