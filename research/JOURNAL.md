@@ -438,3 +438,10 @@ margin): KEEP v9. Checker issue 99 (merge crash after simulation) fixed; analysi
   dropped: -0.11. h3 alone OOF 0.572 = s3 0.573 > s2 0.566. KEEP v9 with h3. Checker issues 113-115 fixed.
 - research/sim_t4_for_h3.py: h3's seat given to t4 (train.csv-only Qwen, OOF 0.398 alone vs h3 0.572): -0.13
   (SE 0.05), worst plausible cell -0.46; t4 added on top with h3 kept: +0.06 (worst -0.34). KEEP v9. Checker issue 116 fixed.
+
+### v10 on the leaderboard (2026-11-12 16:50 IST)
+v10 = v9 with h3s2all (hostlike-trained Qwen) replaced by t4all (train.csv-only Qwen) at 0.1 (kernel ntl-v10 v1,
+ref 58269995, submitted at the user's request as a direct LB check): public LB **0.581** vs v9 0.580. Simulator said
+-0.13 (SE 0.05). +0.1 on ~1,600 public rows is well inside LB noise (paired SD of a member swap ~0.3-0.5), so the
+swap is a tie, consistent with the simulator's "no gain"; the hidden test does not favour the train-only model
+noticeably. Scored in about 25 minutes. Paired probe P6 (member swap) for a later simulator refit.
