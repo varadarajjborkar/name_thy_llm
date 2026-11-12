@@ -403,3 +403,14 @@ Posterior unchanged: ~4 passages per prompt, mix fairly even. 96 settings (cente
 clusters 5-12) vs v9: best w0.35_a0.2_g5 +0.73 but -0.77 in the worst plausible cell (lighter sinkhorn wins when the
 mix is uneven, loses when it is even). Decision rule (>= +0.75 and never worse; checker issue 100 selection-bias
 margin): KEEP v9. Checker issue 99 (merge crash after simulation) fixed; analysis rerun from saved draws.
+
+### s4 seed 7, exclusion post, per-model recall (2026-11-12 05:00-06:00 IST)
+- s4 seed 7 (tools/s4seeds.sh, same recipe, init run4): folds 0.632 / 0.580 / 0.613 / 0.596 vs seed 42
+  0.617 / 0.552 / 0.626 / 0.594; OOF raw 0.605 vs 0.597, mean of both 0.601. On the simulator with the v9 post
+  (research/sim_members.py): +0.30 (SE 0.06), worst plausible cell -0.06. Below the +0.5 bar alone; seed 123 queued.
+- Mean-field exclusion inside small clusters (research/sim_exclusion.py): up to +1.09 expected (clusters of 3, lam 1)
+  but every strong setting loses 0.3-1.4 in some plausible cell; checker issues 101-102 add real-scale purity and
+  duplicate-model risks. NOT adopted.
+- v9-post recall per model on test-like draws: weakest glm-5.3 0.31, claude-fable-5 0.34, gemini-3.7-flash 0.38,
+  gpt-5.6-sol 0.41, glm-5.3-flash 0.42, kimi-k3 0.43. The glm-5.3 / glm-5.3-flash / claude-fable-5 triangle confuses
+  mostly within itself (the user's Claude/GLM idea), gemini-3.7 vs 3.8 flash, gpt-5.6 sol/terra/luna, kimi vs gpt-5.5.

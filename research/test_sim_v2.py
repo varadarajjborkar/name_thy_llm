@@ -98,6 +98,7 @@ if __name__ == "__main__":
     C = pd.DataFrame(cells)
     C["post_prob"] = np.exp(-(C.chi2 - C.chi2.min()) / 2)
     C["post_prob"] /= C.post_prob.sum()
+    C.to_csv(ROOT / "logs/test_sim_v2_cells.csv", index=False)  # posterior for member evaluations (sim_members.py)
     say("cells with P1, P2, P3, P5 (LB -3.5 / -0.4 / +1.7 / +0.9), top 10:")
     say(C.sort_values("chi2").head(10).round(3).to_string(index=False))
     say("posterior over m: " + ", ".join(f"{k}: {v:.2f}" for k, v in C.groupby("m").post_prob.sum().items()))
