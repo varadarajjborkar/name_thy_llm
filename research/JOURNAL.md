@@ -445,3 +445,14 @@ ref 58269995, submitted at the user's request as a direct LB check): public LB *
 -0.13 (SE 0.05). +0.1 on ~1,600 public rows is well inside LB noise (paired SD of a member swap ~0.3-0.5), so the
 swap is a tie, consistent with the simulator's "no gain"; the hidden test does not favour the train-only model
 noticeably. Scored in about 25 minutes. Paired probe P6 (member swap) for a later simulator refit.
+
+### Public 0.684 pipeline copies on the leaderboard (2026-11-13 IST)
+Both from tools/build_pub684.py, submitted 2026-11-12 13:37 UTC, credits to evgendvorkin and the section 20 authors
+in each notebook.
+- pub684-copy (ref 58274549), unchanged public code: public LB **0.684**, reproduces the published score exactly.
+- pub684-glm9 (ref 58274545), Qwen3-8B LoRA24 reader q8v5 swapped for mathleteutd's GLM-4-9B LoRA24 reader glm9v3
+  at the same weight 2.0 / twin 0.35 / gauss 0.44: public LB **0.677** (-0.7). The guard did not fire (status
+  COMPLETE), so GLM ran; it is simply a weaker reader in this blend, or the q8v5-tuned weights do not suit it.
+- Gap to our v10 0.581: about +10 points, coming from the public LoRA readers (bigger bases, more adapters, trained
+  by others), not from post-processing. Scoring on train.csv is not meaningful for this pipeline: its readers were
+  fitted on train.csv (its own code checks in-sample accuracy on training rows as a load test).
