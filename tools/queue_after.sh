@@ -4,7 +4,9 @@
 set -u
 cd "$(dirname "$0")/.."
 wait_for=$1; shift
-until [[ -f "checkpoints/$wait_for/DONE_TRAINING" ]] || grep -q "STOP" logs/s4seeds.log; do sleep 30; done
-if grep -q "STOP" logs/s4seeds.log; then echo "$(date '+%Y-%m-%d %H:%M') queue_after: chain stopped, not starting" >> logs/s4seeds.log; exit 1; fi
+start_line=$(wc -l < logs/s4seeds.log 2>/dev/null || echo 0)  # only STOP lines written after this start count
+new_stop() { tail -n +"$((start_line + 1))" logs/s4seeds.log 2>/dev/null | grep -q "STOP"; }
+until [[ -f "checkpoints/$wait_for/DONE_TRAINING" ]] || new_stop; do sleep 30; done
+if [[ ! -f "checkpoints/$wait_for/DONE_TRAINING" ]] && new_stop; then echo "$(date '+%Y-%m-%d %H:%M') queue_after: chain stopped, not starting" >> logs/s4seeds.log; exit 1; fi
 sleep 60  # let the finished trainer release the GPU and RAM
 exec bash tools/s4seeds.sh "$@"
