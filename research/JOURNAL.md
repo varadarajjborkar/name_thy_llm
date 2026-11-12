@@ -436,3 +436,5 @@ margin): KEEP v9. Checker issue 99 (merge crash after simulation) fixed; analysi
   (k_host3: pool + hostlike x3) saw hostlike (weight 0.1 in v9).
 - research/sim_nohost.py: h3 removed, weight to s2+s3 (clean): -0.19 (SE 0.04), worst plausible cell -0.62; weight
   dropped: -0.11. h3 alone OOF 0.572 = s3 0.573 > s2 0.566. KEEP v9 with h3. Checker issues 113-115 fixed.
+- research/sim_t4_for_h3.py: h3's seat given to t4 (train.csv-only Qwen, OOF 0.398 alone vs h3 0.572): -0.13
+  (SE 0.05), worst plausible cell -0.46; t4 added on top with h3 kept: +0.06 (worst -0.34). KEEP v9. Checker issue 116 fixed.
