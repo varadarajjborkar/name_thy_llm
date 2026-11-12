@@ -49,9 +49,18 @@ import style_features as SF
 
 FILES = {"Kaggle": "data/train.csv", "Pool 92k": "data/processed/pool_cont2.parquet",
          "Pool 60k": "data/processed/pool_typo_60k.parquet", "Hostlike": "data/processed/hostlike.parquet"}
-FULL = {k: (pd.read_csv(ROOT + f) if f.endswith(".csv") else pd.read_parquet(ROOT + f, columns=["text", "model"]))
-        for k, f in FILES.items()}
+import pyarrow.parquet as pq
+def load(f):
+    if f.endswith(".csv"):
+        d = pd.read_csv(ROOT + f); d["grp"] = "kaggle:" + d.prompt_id.astype(str); return d
+    has = "prompt_group" in pq.ParquetFile(ROOT + f).schema_arrow.names
+    d = pd.read_parquet(ROOT + f, columns=["text", "model"] + (["prompt_group"] if has else []))
+    # prompt ids (for splits that keep one prompt on one side); Pool 92k has none, so each text is its own group
+    d["grp"] = (f + ":" + d.prompt_group.astype(str)) if has else (f + ":row" + pd.Series(range(len(d)), index=d.index).astype(str))
+    return d
+FULL = {k: load(f) for k, f in FILES.items()}
 for d in FULL.values(): d["text"] = d.text.fillna("").astype(str)
+TX = lambda X: np.sign(X) * np.log1p(np.abs(X))  # signed log: keeps sentinels like -1 and negative readability
 SETS = list(FULL)
 EXT = SETS[1:]
 
@@ -92,7 +101,7 @@ def heat(ax, M, rows, cols, cmap, norm=None, vmin=None, vmax=None, fmt="{:.2f}",
     return im
 
 # class-matched samples: at most 150 texts per model from every set (Kaggle has 150 per model)
-S = {"Kaggle": FULL["Kaggle"][["text", "model"]].copy()}
+S = {"Kaggle": FULL["Kaggle"][["text", "model", "grp"]].copy()}
 for k in EXT:
     d = FULL[k]
     S[k] = pd.concat([d[d.model == m].sample(min(150, (d.model == m).sum()), random_state=0) for m in MODELS])
@@ -154,7 +163,7 @@ md("""
 **What this shows:**
 - Overall, the two pools have Kaggle's length (median 101 and 100 words vs 101). **Hostlike is shorter** (86): blue in almost every row of the right panel, down to 0.69 for gemini-3.7-flash.
 - Per model, the pools mostly sit within 10% of Kaggle. The exceptions: kimi-k3 is longer outside (1.15 and 1.11), and in Pool 60k glm-5.3 (1.18) and claude-sonnet-5 (1.15).
-- **A clue that gets lost:** in Kaggle, gemini-3.7-flash writes clearly longer texts than gemini-3.8-flash (median 101 vs 84 words). In Pool 92k the gap shrinks to about 94 vs 87, and in hostlike it even flips (about 70 vs 77). So the external data barely teaches "longer means 3.7", and 3.7 vs 3.8 is one of our worst mix-ups.
+- **A clue that gets lost:** in Kaggle, gemini-3.7-flash writes clearly longer texts than gemini-3.8-flash (median 101 vs 84 words). In Pool 92k the gap shrinks to about 94 vs 87, and in hostlike the two are about equal (70 vs 77; with 150 texts per model a median can move by several words, so the order there is within noise). So the external data teaches "longer means 3.7" only weakly, and 3.7 vs 3.8 is one of our worst mix-ups.
 """)
 
 # ---------------------------------------------------------------- 3. habits
@@ -186,8 +195,8 @@ md("""
 - **Family rules hold everywhere:** Gemini never uses em dashes; Claude, GLM and Gemini never use curly quotes; Claude and GLM use the most em dashes. The rows are evenly coloured for these.
 - **Curly quotes in GPT:** 2 to 4 times more common outside (for example gpt-5.6-terra 0.01 in Kaggle, 0.04 outside). A habit the external data exaggerates.
 - **Semicolons:** kimi-k3 uses about twice as many in Kaggle (0.13) as outside (0.04 to 0.08); gpt-5.5 too (0.12 vs 0.07 to 0.09).
-- **Sentence length:** GPT models write **longer sentences in Kaggle** (24 to 26 words vs 18 to 22 outside), and so does kimi-k3 (26 vs 21 to 23). That is a clear change in setting, not noise.
-- **Word length:** hostlike uses shorter words for every model (about 5.0 vs 5.3 to 5.9), consistent with simpler topics.
+- **Sentence length:** every GPT model writes **longer sentences in Kaggle**, by 3 to 5 words (Kaggle 21 to 26, outside 18 to 22), and so does kimi-k3 (26 vs 21 to 23). That is a consistent change in setting, not noise.
+- **Word length:** hostlike uses shorter words for every model except gpt-6-astra (about 5.0 vs 5.3 to 5.9), consistent with simpler topics.
 """)
 
 # ---------------------------------------------------------------- 4. drift heatmap
@@ -233,9 +242,9 @@ All 290 style features squeezed into 2 dimensions (PCA, fitted on Kaggle only). 
 code(r'''
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-sc = StandardScaler().fit(np.log1p(F["Kaggle"][VARY].clip(lower=0)))
-pca = PCA(2, random_state=0).fit(sc.transform(np.log1p(F["Kaggle"][VARY].clip(lower=0))))
-P = {k: pca.transform(sc.transform(np.log1p(F[k][VARY].clip(lower=0)))) for k in SETS}
+sc = StandardScaler().fit(TX(F["Kaggle"][VARY]))
+pca = PCA(2, random_state=0).fit(sc.transform(TX(F["Kaggle"][VARY])))
+P = {k: pca.transform(sc.transform(TX(F[k][VARY]))) for k in SETS}
 lim = np.percentile(np.vstack(list(P.values())), [1, 99], axis=0)
 from scipy.ndimage import gaussian_filter
 def dens(p):  # smoothed 2-D histogram, so the shapes are readable instead of grainy
@@ -290,10 +299,10 @@ plt.tight_layout(); plt.show()
 md("""
 **What this shows:**
 - **The family map carries over:** the dark family squares (Claude, Gemini, GPT) are in every dataset, and the overall match is 0.88 (Pool 92k), 0.87 (Pool 60k) and 0.78 (hostlike).
-- **Two Kaggle look-alikes fade outside**, and both match our known mistakes:
-  - In Kaggle, **GLM looks like Claude** (dark GLM-Claude cells top-left). In Pool 92k that link is much weaker (blue in the "minus" panel).
-  - In Kaggle, **Kimi looks like GPT**. Outside, much less (blue Kimi-GPT cells), while Kimi looks more like Gemini outside (orange).
-- So the external data does not teach the Claude/GLM and Kimi/GPT confusions that happen in Kaggle; only Kaggle's own texts show them.
+- **Two Kaggle look-alikes weaken outside**, and both match our known mistakes:
+  - In Kaggle, **GLM looks like Claude** (dark cells where the GLM rows meet the Claude columns, bottom-left, mirrored top-right). In **Pool 92k** that link is much weaker (blue in its "minus" panel); in Pool 60k and hostlike it stays.
+  - In Kaggle, **Kimi looks like GPT**. In all three external sets much less (blue Kimi-GPT cells), while Kimi looks more like Gemini outside (orange).
+- So the Kimi/GPT resemblance is missing from all external data, and the Claude/GLM one from Pool 92k, the first-stage data of our main model. Only Kaggle's own texts show them fully.
 """)
 
 # ---------------------------------------------------------------- 7. sibling clues
@@ -303,10 +312,13 @@ md("""
 This is the question that matters most for our score. Our worst mistakes are between **siblings** (models of the same family). For every sibling pair:
 - **Kaggle separation**: how different the two models are in Kaggle (average absolute standardised difference over all style features). The **noise floor** column is the same number after shuffling the two models' labels: what pure chance gives with 150 texts each. If separation is close to the noise floor, our style features cannot tell the pair apart even in Kaggle.
 - **Clue match** for each external set: the correlation between the pair's difference profile in Kaggle and outside. 1 = the same features separate them in the same direction; 0 = unrelated.
+- **Kaggle vs Kaggle** is the fair ceiling: the same correlation between two halves of Kaggle (split by prompt, 75 texts per model in each half, averaged over 10 splits). Even Kaggle cannot match itself better than this, so an external set close to it carries the clues as well as can be measured. With half the texts, this ceiling is a little lower than a full-size comparison would be.
 """)
 code(r'''
 rng = np.random.default_rng(0)
 K = F["Kaggle"][VARY].to_numpy(); KM = S["Kaggle"].model.to_numpy()
+KG = S["Kaggle"].grp.to_numpy(); UG = np.unique(KG)
+HALVES = [np.isin(KG, rng.permutation(UG)[:len(UG) // 2]) for _ in range(10)]  # prompt halves of Kaggle
 rows = []
 for i, a in enumerate(MODELS):
     for b in MODELS[i + 1:]:
@@ -317,6 +329,9 @@ for i, a in enumerate(MODELS):
         for _ in range(20):
             p = rng.permutation(len(both)); noise.append(np.abs(smd(both[p[:len(ka)]], both[p[len(ka):]])).mean())
         r = {"pair": f"{a} | {b}", "Kaggle separation": np.abs(t).mean(), "noise floor": np.mean(noise)}
+        r["clue match Kaggle vs Kaggle"] = np.mean([np.corrcoef(smd(K[(KM == a) & h], K[(KM == b) & h]),
+                                                                smd(K[(KM == a) & ~h], K[(KM == b) & ~h]))[0, 1]
+                                                    for h in HALVES])
         for k in EXT:
             E = F[k][VARY].to_numpy(); EM = S[k].model.to_numpy()
             r[f"clue match {k}"] = np.corrcoef(t, smd(E[EM == a], E[EM == b]))[0, 1]
@@ -337,10 +352,11 @@ print(SIB.round(3).to_string())
 ''')
 md("""
 **What this shows:**
-- **Left:** for the top 7 pairs (glm-5.3 vs glm-5.3-flash, gemini-3.7 vs 3.8, gemini-3.6 vs 3.7 and 3.8, the gpt-5.6 luna / sol / terra trio), the Kaggle separation **equals the noise floor**. Our style features cannot tell these siblings apart **even in Kaggle**. Only the deep Qwen features, trained on Kaggle's own texts, can.
-- **Right:** for exactly those pairs, the clue match is near 0 (0.1 to 0.4), as expected when there is no clue to carry over.
-- For pairs that **do** differ in style (bottom half: Claude opus-5 vs others, gpt-5.5 / gpt-6-astra, gemini-3.1-pro vs the flashes), the clues carry over well (0.55 to 0.79), and both pools do better than hostlike.
-- **Practical meaning:** the hardest mistakes are not caused by "bad" external data. They are between models that write almost identically, so more external data of the same kind will not fix them.
+- **Left:** for the top 7 pairs (glm-5.3 vs glm-5.3-flash, gemini-3.7 vs 3.8, gemini-3.6 vs 3.7 and 3.8, the gpt-5.6 luna / sol / terra trio), the Kaggle separation **is at the noise floor**: averaged over all 290 features, these siblings differ no more than chance. An average can hide a few real clues, and the Kaggle vs Kaggle column shows some exist: 0.22 to 0.32 for most of these pairs, but only 0.10 for glm-5.3 vs glm-5.3-flash. So their style clues are **weak**, and for the GLM pair almost absent, even inside Kaggle.
+- **Right, hard pairs:** the external sets match about as well as Kaggle matches itself (for example gemini-3.7 vs 3.8: Kaggle vs Kaggle 0.22, external 0.10 to 0.26; gpt-5.6 luna vs terra: 0.30, external 0.38 to 0.43). The few weak clues these pairs have do appear outside. The values just above the ceiling come from it using half the texts.
+- **Right, where clues are lost:** gemini-3.1-pro vs the flashes (Kaggle vs Kaggle 0.61 to 0.73; Pool 92k 0.42 to 0.57, hostlike 0.21 to 0.44) and gpt-6-astra vs the gpt-5.6 models (0.65 to 0.70; external 0.32 to 0.55). These two models are also the biggest losers in section 8.
+- **Claude pairs** carry over at or near the ceiling in all three sets.
+- **Practical meaning:** the hardest confusions (GLM pair, gemini 3.7/3.8, the gpt-5.6 trio) have weak style clues even in Kaggle, and the external data already carries what little there is. More data of the same kind cannot add a clue that is missing. The clues external data does lose belong to gemini-3.1-pro and gpt-6-astra.
 """)
 
 # ---------------------------------------------------------------- 8. teach test
@@ -348,10 +364,10 @@ md("""
 ## 8. Does the external data teach what Kaggle's test needs?
 
 A direct test, using only our style features and a simple classifier (logistic regression):
-- **Taught by Kaggle**: trained on Kaggle, scored on Kaggle prompts it never saw (5 folds, split by prompt).
-- **Taught by X**: trained only on 150 texts per model from external set X, scored on all of Kaggle.
+- **Taught by Kaggle**: trained on Kaggle, scored on Kaggle prompts it never saw (5 folds, split by prompt, so it trains on about 120 texts per model each time).
+- **Taught by X**: trained only on 120 texts per model from external set X, scored on all of Kaggle. Repeated with 5 different random samples of 120; the charts show the average and the title gives the spread.
 
-Same model, same features, same amount of training data per model, so the only difference is where the training texts came from. Each heatmap cell is the share of Kaggle texts of that model (row) that were labelled as each model (column); a perfect classifier is a dark diagonal. The table after it shows the recall per model (diagonal) side by side.
+Same classifier, same features, same number of training texts per model, so the only difference is where the training texts came from. Each heatmap cell is the share of Kaggle texts of that model (row) that were labelled as each model (column); a perfect classifier is a dark diagonal. The table after it shows the recall per model (diagonal) side by side.
 """)
 code(r'''
 from sklearn.linear_model import LogisticRegression
@@ -359,32 +375,41 @@ from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics import balanced_accuracy_score, confusion_matrix
 clf = lambda: make_pipeline(StandardScaler(), LogisticRegression(C=0.05, max_iter=3000))
-Xk = np.log1p(F["Kaggle"][VARY].clip(lower=0)).to_numpy(); yk = S["Kaggle"].model.to_numpy()
-pred = {"Kaggle": np.empty(len(yk), dtype=object)}
-for tr_i, te_i in GroupKFold(5).split(Xk, yk, FULL["Kaggle"].prompt_id):
-    pred["Kaggle"][te_i] = clf().fit(Xk[tr_i], yk[tr_i]).predict(Xk[te_i])
+Xk = TX(F["Kaggle"][VARY]).to_numpy(); yk = S["Kaggle"].model.to_numpy()
+pk = np.empty(len(yk), dtype=object)
+for tr_i, te_i in GroupKFold(5).split(Xk, yk, S["Kaggle"].grp):
+    pk[te_i] = clf().fit(Xk[tr_i], yk[tr_i]).predict(Xk[te_i])
+PRED = {"Kaggle": [pk]}
 for k in EXT:
-    pred[k] = clf().fit(np.log1p(F[k][VARY].clip(lower=0)).to_numpy(), S[k].model.to_numpy()).predict(Xk)
+    PRED[k] = []
+    for seed in range(5):  # 120 texts per model, 5 different samples
+        idx = S[k].groupby("model", group_keys=False).apply(lambda g: g.sample(min(120, len(g)), random_state=seed)).index
+        PRED[k].append(clf().fit(TX(F[k].loc[idx, VARY]).to_numpy(), S[k].loc[idx, "model"].to_numpy()).predict(Xk))
 fig, axes = plt.subplots(1, 4, figsize=(28, 8), sharey=True)
-REC = {}
+REC, BACC = {}, {}
 for ax, k in zip(axes, SETS):
-    cmx = confusion_matrix(yk, pred[k], labels=MODELS, normalize="true")
+    cmx = np.mean([confusion_matrix(yk, p, labels=MODELS, normalize="true") for p in PRED[k]], axis=0)
     REC[k] = np.diag(cmx)
+    b = [100 * balanced_accuracy_score(yk, p) for p in PRED[k]]
+    BACC[k] = (np.mean(b), np.std(b))
     heat(ax, cmx, MODELS, MODELS, SEQ, vmin=0, vmax=0.6, annot=False, cbar=(k == SETS[-1]), label="share of the row")
-    ax.set_title(f"Taught by {k}: balanced accuracy {100 * balanced_accuracy_score(yk, pred[k]):.1f}%", loc="left")
+    ax.set_title(f"Taught by {k}: balanced accuracy {np.mean(b):.1f}%" + (f" (± {np.std(b):.1f})" if len(b) > 1 else ""),
+                 loc="left")
 plt.tight_layout(); plt.show()
 fig, ax = plt.subplots(figsize=(7, 8))
 R = pd.DataFrame(REC, index=MODELS)
 heat(ax, R.values * 100, MODELS, [f"taught by {k}" for k in SETS], SEQ, vmin=0, vmax=70, fmt="{:.0f}",
      label="recall on Kaggle (%)")
 ax.set_title("Recall per model on Kaggle texts (%)", loc="left"); plt.tight_layout(); plt.show()
+print({k: f"{m:.1f} +- {s:.1f}" for k, (m, s) in BACC.items()})
+print(R.mul(100).round(0).astype(int).to_string())
 ''')
 md("""
 **What this shows:**
-- **Kaggle texts are worth more than external texts:** with the same 150 texts per model, training on Kaggle gives **33.4%**, on Pool 92k **26.3%**, Pool 60k **24.9%**, hostlike **23.8%** (on prompts the Kaggle model never saw). About 7 to 10 points are lost purely from where the training texts came from.
-- **Biggest losses** when taught by external data: gemini-3.1-pro (62% down to 36% to 47%), gpt-6-astra (50% down to 30% to 36%), kimi-k3 (26% down to 5% to 17%), glm-5.3 (26% down to 8% to 22%).
+- **Kaggle texts are worth more than external texts:** with 120 texts per model in every case, training on Kaggle gives **33.3%**, on Pool 92k **25.0%** (± 0.3 over 5 samples), Pool 60k **24.0%** (± 0.4), hostlike **23.4%** (± 0.6), always scored on Kaggle prompts the classifier never saw. About 8 to 10 points are lost purely from where the training texts came from.
+- **Biggest losses** when taught by external data: gemini-3.1-pro (61% down to 37% to 46%), gpt-6-astra (51% down to 25% to 36%), kimi-k3 (27% down to 7% to 16%), glm-5.3 (26% down to 8% to 19%), gpt-5.6-luna (30% down to 17% to 18%).
 - **A new confusion appears:** taught by external data, many Kaggle GPT texts are labelled **qwen3.8-max** (the lit qwen column in the GPT rows). Outside, Qwen writes more like Kaggle's GPT.
-- Pool 92k is the best of the three external teachers, which agrees with the main model (trained on it first) being our strongest member.
+- Pool 92k is slightly ahead of the other two (about 1 point, more than its spread); Pool 60k and hostlike are within noise of each other.
 - This is why stage 2 on Kaggle's own texts matters so much, and why the 3 to 4 points we lose on the hidden test are hard to win back with more outside data.
 """)
 
@@ -392,33 +417,37 @@ md("""
 md("""
 ## 9. Can a classifier tell the datasets apart?
 
-Here a classifier gets mixed Kaggle and external texts (class-matched) and must guess **which dataset** each text came from. The score is AUC: **0.5 = it cannot tell (the data look the same)**, 1.0 = it is never wrong.
+Here a classifier gets mixed Kaggle and external texts (class-matched) and must guess **which dataset** each text came from. The score is AUC: **0.5 = it cannot tell (the data look the same)**, 1.0 = it is never wrong. The folds are split by prompt, so the classifier is never tested on a prompt it saw in training (otherwise it can recognise the prompt instead of the dataset). Pool 92k has no prompt ids, so its folds cannot be split this way and its numbers are an upper bound.
 - **Style features**: our 290 hand-made style numbers only.
 - **Character patterns**: 2 to 4 character snippets (TF-IDF), which also see the topic and vocabulary.
 """)
 code(r'''
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import StratifiedKFold, cross_val_predict
+from sklearn.model_selection import StratifiedGroupKFold, cross_val_predict
 from sklearn.metrics import roc_auc_score
-cv = StratifiedKFold(5, shuffle=True, random_state=0)
+cv = StratifiedGroupKFold(5, shuffle=True, random_state=0)
 A = {}
 for k in EXT:
     y = np.r_[np.zeros(len(S["Kaggle"])), np.ones(len(S[k]))]
-    Xs = np.log1p(pd.concat([F["Kaggle"][VARY], F[k][VARY]]).clip(lower=0)).to_numpy()
-    p1 = cross_val_predict(clf(), Xs, y, cv=cv, method="predict_proba")[:, 1]
+    g = np.r_[S["Kaggle"].grp.to_numpy(), S[k].grp.to_numpy()]
+    Xs = TX(pd.concat([F["Kaggle"][VARY], F[k][VARY]])).to_numpy()
+    p1 = cross_val_predict(clf(), Xs, y, cv=cv, groups=g, method="predict_proba")[:, 1]
     Xc = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4), min_df=3, max_features=100_000,
                          sublinear_tf=True).fit_transform(pd.concat([S["Kaggle"].text, S[k].text]))
-    p2 = cross_val_predict(LogisticRegression(C=1.0, max_iter=2000), Xc, y, cv=cv, method="predict_proba")[:, 1]
-    A[k] = {"style features": roc_auc_score(y, p1), "character patterns": roc_auc_score(y, p2)}
+    p2 = cross_val_predict(LogisticRegression(C=1.0, max_iter=2000), Xc, y, cv=cv, groups=g, method="predict_proba")[:, 1]
+    A[k + (" (upper bound)" if k == "Pool 92k" else "")] = {"style features": roc_auc_score(y, p1),
+                                                            "character patterns": roc_auc_score(y, p2)}
 A = pd.DataFrame(A).T
+print(A.round(3).to_string())
 fig, ax = plt.subplots(figsize=(6, 3.6))
 heat(ax, A.values, list(A.index), list(A.columns), SEQ, vmin=0.5, vmax=1.0, fmt="{:.3f}", label="AUC (0.5 = alike)")
 ax.set_title("Kaggle vs external: how easy to tell apart", loc="left"); plt.tight_layout(); plt.show()
 ''')
 md("""
 **What this shows:**
-- **Easy to tell apart.** Even with only style numbers, a classifier picks the dataset with AUC 0.82 (pools) and 0.88 (hostlike). With character patterns, which see topics and vocabulary, 0.94 to 0.97.
-- That fits sections 4 and 5: no single feature differs much, but many small shifts add up, and the topics differ completely (the external sets were built to avoid Kaggle's prompts).
+- **Clearly, but not perfectly, distinguishable.** With style numbers only, AUC 0.76 to 0.77 for the pools and 0.83 for hostlike; with character patterns, 0.81 for the pools and 0.86 for hostlike.
+- Splitting by prompt matters: with random folds the same test gave 0.82 to 0.88 and 0.94 to 0.97, because the classifier partly learned to recognise Kaggle's 150 prompts.
+- That fits sections 4 and 5: no single feature differs much, but many small shifts add up. **Hostlike is the most different** of the three; the two pools are equally close.
 """)
 
 md("""
@@ -430,15 +459,16 @@ md("""
 | Length like Kaggle? | yes (101 vs 101 words) | yes (100) | shorter (86) |
 | Features drifting > 0.5 sd | 1.5% | 1.4% | 4.6% |
 | Family map match | 0.88 | 0.87 | 0.78 |
-| Tell-apart AUC (style / characters) | 0.82 / 0.94 | 0.82 / 0.95 | 0.88 / 0.97 |
-| Classifier taught on it, scored on Kaggle | 26.3% | 24.9% | 23.8% (Kaggle-taught 33.4%) |
+| Tell-apart AUC, split by prompt (style / characters) | 0.76 / 0.81 (upper bound) | 0.77 / 0.81 | 0.83 / 0.86 |
+| Classifier taught on it, scored on Kaggle | 25.0% | 24.0% | 23.4% (Kaggle-taught 33.3%) |
 
 **In one line:** the external data looks like Kaggle on average and teaches the families correctly, but the details differ:
 - GPT sentence length and Kimi semicolons;
 - the 3.7 vs 3.8 length clue;
-- the GLM-like-Claude and Kimi-like-GPT resemblance.
+- the Kimi-like-GPT resemblance (all sets) and GLM-like-Claude (Pool 92k);
+- the clues for gemini-3.1-pro and gpt-6-astra.
 
-Our hardest siblings write almost identically even in Kaggle. Kaggle's own texts remain the best teacher, and Pool 92k is the best external one.
+Our hardest siblings have weak style clues even in Kaggle, and the external data carries those about as well as can be measured. Kaggle's own texts remain the best teacher by about 8 to 10 points; Pool 92k is slightly the best external one.
 """)
 
 nb["cells"] = C
