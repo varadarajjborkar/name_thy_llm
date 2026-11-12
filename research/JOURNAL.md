@@ -425,3 +425,14 @@ margin): KEEP v9. Checker issue 99 (merge crash after simulation) fixed; analysi
   full fits for the notebook, a weights-dataset upload, about 2x the s4 inference GPU time on Kaggle, a submission.
 - Seeds help with diminishing returns (+0.30 for 2, +0.50 for 3). If the bar is relaxed later, s4x3 is the ready next
   candidate: the s4alls7 full fit exists; s4alls123 still needs about 35 min on the local GPU.
+
+### Kaggle vs external data notebook; v9 without the hostlike member (2026-11-12 IST)
+- research/data_compare.ipynb (built by research/make_data_compare.py): Kaggle vs Pool 92k / Pool 60k / hostlike,
+  class-matched. Pools close on average (1.5% of feature x model cells drift > 0.5 sd; hostlike 4.6%); tell-apart AUC
+  split by prompt 0.76-0.77 pools, 0.83 hostlike (style). Style-only classifier, 120 texts/model: Kaggle-taught 33.3%
+  vs 25.0 / 24.0 / 23.4. Hard sibling pairs have weak style clues even within Kaggle (split-half 0.10-0.32) and the
+  external sets carry them about as well; clues lost outside: gemini-3.1-pro, gpt-6-astra. Checker issues 106-112 fixed.
+- Lineage: s4 = run2 (pool 60k) -> run3 (+30k) -> run4 (+92k) -> train.csv: no hostlike. s2, s3 also none. Only h3
+  (k_host3: pool + hostlike x3) saw hostlike (weight 0.1 in v9).
+- research/sim_nohost.py: h3 removed, weight to s2+s3 (clean): -0.19 (SE 0.04), worst plausible cell -0.62; weight
+  dropped: -0.11. h3 alone OOF 0.572 = s3 0.573 > s2 0.566. KEEP v9 with h3. Checker issues 113-115 fixed.
