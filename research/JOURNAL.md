@@ -331,3 +331,128 @@ s4ff recipe without stage 1 (no --init). Folds 0.402 / 0.389 / 0.424 / 0.376, OO
 Same folds for s4ff (stage 1 on external pool, then stage 2): raw 0.597, post 0.640, company 0.749.
 So external data is worth about +15 points after post; post helps the train-only model far more (+9 vs +4).
 Train-only Qwen still beats every hand-made signal at company level (best probe 0.60).
+
+### Shift-aware validation explains tree1 (2026-11-12 00:15)
+Sources: Geirhos et al. 2020 "Shortcut Learning" (sent by the user); mizuno0522's public notebook ("test prompts
+appear to have only a few answers each"; group assignment +0.06 CV, no LB gain; char+word TF-IDF LinearSVC LB 0.345);
+Kaggle Data page: test has only id + text, unseen prompts, ~4000 rows, unequal and public/private-different model mix.
+research/tree2_eval.py scores each fold twice: FULL (all 18 per prompt, as train.csv) and SPARSE (2-6 texts per prompt,
+Dirichlet model mix, groups found on the subset, 3 draws). tree1's design: FULL 0.376, SPARSE 0.269, real LB 0.263.
+So SPARSE is the first local number that predicts the LB; centering's +10 is a train.csv-structure shortcut.
+SPARSE raw: style trees 0.26-0.27, + next-word averages 0.287, + signal 0.287, letter chunks (char_wb 2-5 TF-IDF + LR)
+0.304, blend 0.3 tree + 0.7 letters 0.321 (pick is optimistic). Company under SPARSE about 0.55 at best.
+Next-word "signal processing" features (features/signal_feats.py: GLTR ranks, FFT of surprise, autocorrelation,
+runs): company 0.274 raw / 0.337 centered alone, +0 on top of style + next-word averages.
+Checker issues on tree2_eval: SPARSE subsets (~120 rows) are below MIN_POST_ROWS so post never runs there; pooling
+the 4 folds' sparse subsets into one ~480-row set is the fix.
+
+### t4 on the leaderboard (2026-11-12)
+Kernel ntl-t4 v1 (Qwen3-4B fine-tuned on train.csv only, single member + notebook post): public LB 0.434
+(OOF post 0.490, so -5.6). Compare: tree1 0.263, old TF-IDF SVM 0.348, mizuno's char+word TF-IDF SVC 0.345,
+v8 with external data 0.571. Train-only Qwen beats every train-only classical model by about +9 on the LB;
+external data is still worth about +14 on the LB.
+
+### t4 inside the best blend (2026-11-12)
+research/blend_t4.py (copy of blend_8b.py, 8B family swapped for t4f0-3), folds 0-3, v7 post. v7 0.6491.
+Replacing s4 with t4 (0.5): 0.6167 (-3.24, 0/4 folds up). Adding t4 on top of s4: +0.19 to +0.23 at w 0.1-0.3,
+2-3/4 folds up, below the +0.5 keep bar (and the 8B's +0.88 out of fold gave 0 on the LB). Not submitted.
+Estimated LB if swapped in: about 0.54 (v7 0.571 minus the OOF drop).
+
+### Was t4 weak only because the blend was tuned to s4? Train-only blend (2026-11-12)
+research/blend_trainonly.py, folds 0-3, notebook post, weights by coordinate ascent, nested (chosen on 3 folds).
+- v7 as shipped 0.6491 (SPARSE post 0.601). v7 members re-tuned with s4: nested 0.6491.
+- Q1, v7 members with t4 in place of s4, re-tuned: nested 0.6426; the tuner gives t4 0.05 and leans on s2mix. So it
+  was not tuning: t4 is the weakest member (0.398 alone vs s4 0.597).
+- Q2, every member train.csv only (t4, svm4 host, style LGBM cv, ATLAS host-only, letters LR): nested 0.5236,
+  SPARSE post 0.483, vs t4 alone + post 0.4866 (+3.7). Letters and SVM carry the gain. Estimated LB about 0.47.
+- TRACE fingerprints (arXiv 2603.28054: rank / entropy / surprise transition pairs, LR and the paper's 1-NN to one
+  reference per LLM): alone 0.117 / 0.119, blend +0.05. Short texts (50-330 tokens) are far below the ~10K tokens
+  the paper needs for a stable fingerprint. Dropped.
+- Checker: no leakage or alignment bugs; issue 88 (SPARSE uses in-sample weights) and 89 (second-order stacking leak
+  in nested weights, < 0.005) are caveats, not errors.
+Conclusion: train.csv alone tops out about 12 pts below the external-data blend; the data, not tuning, is the gap.
+
+### Calibrated hidden-test simulator (2026-11-12 03:00-04:15 IST, user asleep, autonomous)
+research/test_sim.py: simulated tests drawn from the folds 0-3 OOF rows; model j answers a prompt with probability
+min(1, m w_j), w ~ Dirichlet(alpha); groups found blind exactly as the notebook does. Fitted to three paired LB probes
+(same members, post changed): P1 assignment -3.5, P2 full sinkhorn on TF-IDF -0.4, P3 centering on 3 Qwen families
++1.7. Sigma per probe from the simulated flip fraction on 1600 rows plus Monte Carlo variance; 30 draws per cell,
+common random numbers. Checker issues 90-94 fixed or documented.
+- Full train.csv structure reproduces our OOF (assignment +10, centering +5.3), so the sim is faithful to our CV.
+- Posterior: about 4 passages per test prompt (bimodal: 1.5-2 or 4-6), mix fairly even (alpha >= 2: 85%).
+- v7 under the posterior: raw 59.0, shipped post 59.5 (+0.5 only, vs +5.7 on full OOF). LB 0.571. So the LB is
+  set by raw model quality; post-processing is worth about +1 at most on this test.
+- Best robust post for v7: centering 0.25, clusters N/9, partial sinkhorn 0.45: +0.80 (SE 0.08), positive in every
+  cell with posterior >= 0.05 (worst +0.45). Lighter settings (w 0.25, a 0-0.2, N/5) reach +1.3 but lose in some cells.
+- research/test_sim_p4.py, v7 vs v5 (LB -0.1) as a diagnostic only (it changes members, checker issue 97): the sim
+  predicts +3.8 under P1-P3 (about +2.4 from partial vs full sinkhorn, +1.4 from s4/ATLAS). The 3.9-point gap
+  (about 4 sigma) means v7's changes did not reach the hidden test: the mix may be closer to even than P2 says,
+  and/or the s4/ATLAS member gains shrink on the hidden test.
+- v9 (tools/build_v9_kernel.py): v7 members + the robust post. Also a clean LB probe of post alone vs v7.
+Local GPU: s4 seed ensemble started (tools/s4seeds.sh, seed 7, folds 0-3), with RAM guards (start >= 4 GB free,
+pause if < 1.5 GB twice). The 29.5k unseen pool rows were not used for another stage 1: 8 of 18 models have none.
+
+### v9 on the leaderboard (2026-11-12 04:30 IST)
+v9 (v7 members; centering 0.25, clusters N/9, partial sinkhorn 0.45; kernel ntl-v9 version 1, ref 58251936):
+public LB **0.580**, new best (v5 0.572, v7 0.571). The simulator predicted +0.80 vs v7 for this exact change; the LB
+gave +0.9. First out-of-sample confirmation of the calibrated simulator. v9 - v7 is a clean post-only probe (P5).
+
+### Simulator refit with P5 and a finer post grid (2026-11-12 05:00 IST)
+research/test_sim_v2.py: P5 = v9 - v7 = +0.9 (clean); simulated +0.80 under the posterior, so the fit holds.
+Posterior unchanged: ~4 passages per prompt, mix fairly even. 96 settings (centering 0.1-0.35, sinkhorn 0.2-0.6,
+clusters 5-12) vs v9: best w0.35_a0.2_g5 +0.73 but -0.77 in the worst plausible cell (lighter sinkhorn wins when the
+mix is uneven, loses when it is even). Decision rule (>= +0.75 and never worse; checker issue 100 selection-bias
+margin): KEEP v9. Checker issue 99 (merge crash after simulation) fixed; analysis rerun from saved draws.
+
+### s4 seed 7, exclusion post, per-model recall (2026-11-12 05:00-06:00 IST)
+- s4 seed 7 (tools/s4seeds.sh, same recipe, init run4): folds 0.632 / 0.580 / 0.613 / 0.596 vs seed 42
+  0.617 / 0.552 / 0.626 / 0.594; OOF raw 0.605 vs 0.597, mean of both 0.601. On the simulator with the v9 post
+  (research/sim_members.py): +0.30 (SE 0.06), worst plausible cell -0.06. Below the +0.5 bar alone; seed 123 queued.
+- Mean-field exclusion inside small clusters (research/sim_exclusion.py): up to +1.09 expected (clusters of 3, lam 1)
+  but every strong setting loses 0.3-1.4 in some plausible cell; checker issues 101-102 add real-scale purity and
+  duplicate-model risks. NOT adopted.
+- v9-post recall per model on test-like draws: weakest glm-5.3 0.31, claude-fable-5 0.34, gemini-3.7-flash 0.38,
+  gpt-5.6-sol 0.41, glm-5.3-flash 0.42, kimi-k3 0.43. The glm-5.3 / glm-5.3-flash / claude-fable-5 triangle confuses
+  mostly within itself (the user's Claude/GLM idea), gemini-3.7 vs 3.8 flash, gpt-5.6 sol/terra/luna, kimi vs gpt-5.5.
+
+### s4 seed 123 and the 3-seed average (2026-11-12 06:20-08:10 IST)
+- s4 seed 123 (same recipe, init run4): folds 0.628 / 0.576 / 0.630 / 0.574 (seed 7: 0.632 / 0.580 / 0.613 / 0.596,
+  seed 42: 0.617 / 0.552 / 0.626 / 0.594). Full-structure OOF raw of the members blend: s4x3 0.5977, same as s4x2.
+- Simulator with the v9 post (research/sim_members.py, candidates fixed in advance): s4x2 +0.30 (SE 0.06, worst
+  plausible cell -0.06); s4x3 +0.50 (SE 0.06, worst plausible cell -0.10).
+- Decision rule (>= +0.5 and never worse in a plausible cell): s4x3 fails on the worst cell, and it sits exactly on the
+  bar while the P4 diagnostic says member gains shrink on the hidden test. KEEP v9. Not spent: the s4alls7/s4alls123
+  full fits for the notebook, a weights-dataset upload, about 2x the s4 inference GPU time on Kaggle, a submission.
+- Seeds help with diminishing returns (+0.30 for 2, +0.50 for 3). If the bar is relaxed later, s4x3 is the ready next
+  candidate: the s4alls7 full fit exists; s4alls123 still needs about 35 min on the local GPU.
+
+### Kaggle vs external data notebook; v9 without the hostlike member (2026-11-12 IST)
+- research/data_compare.ipynb (built by research/make_data_compare.py): Kaggle vs Pool 92k / Pool 60k / hostlike,
+  class-matched. Pools close on average (1.5% of feature x model cells drift > 0.5 sd; hostlike 4.6%); tell-apart AUC
+  split by prompt 0.76-0.77 pools, 0.83 hostlike (style). Style-only classifier, 120 texts/model: Kaggle-taught 33.3%
+  vs 25.0 / 24.0 / 23.4. Hard sibling pairs have weak style clues even within Kaggle (split-half 0.10-0.32) and the
+  external sets carry them about as well; clues lost outside: gemini-3.1-pro, gpt-6-astra. Checker issues 106-112 fixed.
+- Lineage: s4 = run2 (pool 60k) -> run3 (+30k) -> run4 (+92k) -> train.csv: no hostlike. s2, s3 also none. Only h3
+  (k_host3: pool + hostlike x3) saw hostlike (weight 0.1 in v9).
+- research/sim_nohost.py: h3 removed, weight to s2+s3 (clean): -0.19 (SE 0.04), worst plausible cell -0.62; weight
+  dropped: -0.11. h3 alone OOF 0.572 = s3 0.573 > s2 0.566. KEEP v9 with h3. Checker issues 113-115 fixed.
+- research/sim_t4_for_h3.py: h3's seat given to t4 (train.csv-only Qwen, OOF 0.398 alone vs h3 0.572): -0.13
+  (SE 0.05), worst plausible cell -0.46; t4 added on top with h3 kept: +0.06 (worst -0.34). KEEP v9. Checker issue 116 fixed.
+
+### v10 on the leaderboard (2026-11-12 16:50 IST)
+v10 = v9 with h3s2all (hostlike-trained Qwen) replaced by t4all (train.csv-only Qwen) at 0.1 (kernel ntl-v10 v1,
+ref 58269995, submitted at the user's request as a direct LB check): public LB **0.581** vs v9 0.580. Simulator said
+-0.13 (SE 0.05). +0.1 on ~1,600 public rows is well inside LB noise (paired SD of a member swap ~0.3-0.5), so the
+swap is a tie, consistent with the simulator's "no gain"; the hidden test does not favour the train-only model
+noticeably. Scored in about 25 minutes. Paired probe P6 (member swap) for a later simulator refit.
+
+### Public 0.684 pipeline copies on the leaderboard (2026-11-13 IST)
+Both from tools/build_pub684.py, submitted 2026-11-12 13:37 UTC, credits to evgendvorkin and the section 20 authors
+in each notebook.
+- pub684-copy (ref 58274549), unchanged public code: public LB **0.684**, reproduces the published score exactly.
+- pub684-glm9 (ref 58274545), Qwen3-8B LoRA24 reader q8v5 swapped for mathleteutd's GLM-4-9B LoRA24 reader glm9v3
+  at the same weight 2.0 / twin 0.35 / gauss 0.44: public LB **0.677** (-0.7). The guard did not fire (status
+  COMPLETE), so GLM ran; it is simply a weaker reader in this blend, or the q8v5-tuned weights do not suit it.
+- Gap to our v10 0.581: about +10 points, coming from the public LoRA readers (bigger bases, more adapters, trained
+  by others), not from post-processing. Scoring on train.csv is not meaningful for this pipeline: its readers were
+  fitted on train.csv (its own code checks in-sample accuracy on training rows as a load test).
