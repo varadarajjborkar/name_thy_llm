@@ -414,3 +414,14 @@ margin): KEEP v9. Checker issue 99 (merge crash after simulation) fixed; analysi
 - v9-post recall per model on test-like draws: weakest glm-5.3 0.31, claude-fable-5 0.34, gemini-3.7-flash 0.38,
   gpt-5.6-sol 0.41, glm-5.3-flash 0.42, kimi-k3 0.43. The glm-5.3 / glm-5.3-flash / claude-fable-5 triangle confuses
   mostly within itself (the user's Claude/GLM idea), gemini-3.7 vs 3.8 flash, gpt-5.6 sol/terra/luna, kimi vs gpt-5.5.
+
+### s4 seed 123 and the 3-seed average (2026-11-12 06:20-08:10 IST)
+- s4 seed 123 (same recipe, init run4): folds 0.628 / 0.576 / 0.630 / 0.574 (seed 7: 0.632 / 0.580 / 0.613 / 0.596,
+  seed 42: 0.617 / 0.552 / 0.626 / 0.594). Full-structure OOF raw of the members blend: s4x3 0.5977, same as s4x2.
+- Simulator with the v9 post (research/sim_members.py, candidates fixed in advance): s4x2 +0.30 (SE 0.06, worst
+  plausible cell -0.06); s4x3 +0.50 (SE 0.06, worst plausible cell -0.10).
+- Decision rule (>= +0.5 and never worse in a plausible cell): s4x3 fails on the worst cell, and it sits exactly on the
+  bar while the P4 diagnostic says member gains shrink on the hidden test. KEEP v9. Not spent: the s4alls7/s4alls123
+  full fits for the notebook, a weights-dataset upload, about 2x the s4 inference GPU time on Kaggle, a submission.
+- Seeds help with diminishing returns (+0.30 for 2, +0.50 for 3). If the bar is relaxed later, s4x3 is the ready next
+  candidate: the s4alls7 full fit exists; s4alls123 still needs about 35 min on the local GPU.

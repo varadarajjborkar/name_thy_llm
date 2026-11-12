@@ -6,6 +6,7 @@ reported as the posterior-weighted difference to v9's members, with SE and the w
 Candidates are fixed in advance (few, to avoid selection bias):
   v9        v7 members (s4 0.5, s2mix 0.3, svm 0.1, lgb 0.1, atlas_pool 0.15)
   s4x2      s4 replaced by the mean log-probabilities of the s4 seeds (42 and 7), same weights
+  s4x3      the same with seeds 42, 7 and 123 (only when all four s123 folds exist)
 Also prints the full-structure OOF numbers for comparison. Caveat: the P4 diagnostic says member gains have shrunk
 on the hidden test before (v7 vs v5); the simulator cannot see that shrinkage, so treat member gains as upper bounds.
 Run: .venv/Scripts/python.exe research/sim_members.py
@@ -57,6 +58,10 @@ assert np.allclose(s4_42, d["s4"]), "s4 family differs from blend_parts"
 s4x2 = family([[f"s4ff{k}" for k in range(4)], [f"s4ff{k}s7" for k in range(4)]])
 rest = 0.3 * d["s2mix"] + 0.1 * d["svm"] + 0.1 * d["lgb"] + 0.15 * tp["atlas_pool"]
 CAND = {"v9": 0.5 * d["s4"] + rest, "s4x2": 0.5 * s4x2 + rest}
+if all((ROOT / f"checkpoints/s4ff{k}s123/val_logits.npy").exists() for k in range(4)):  # third seed, when trained
+    s4x3 = family([[f"s4ff{k}" for k in range(4)], [f"s4ff{k}s7" for k in range(4)],
+                   [f"s4ff{k}s123" for k in range(4)]])
+    CAND["s4x3"] = 0.5 * s4x3 + rest
 
 
 def one(m, alpha, i):
